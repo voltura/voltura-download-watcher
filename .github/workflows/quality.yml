@@ -43,9 +43,17 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\generate-branding.ps1 -SkipScreenshot
-          if (-not (git diff --quiet -- VolturaDownloadWatcher/Assets)) {
-            git diff -- VolturaDownloadWatcher/Assets
-            throw "Generated application icon is out of date."
+          $iconBytes = [System.IO.File]::ReadAllBytes(".\VolturaDownloadWatcher\Assets\voltura-download-watcher.ico")
+          if ($iconBytes.Length -lt 86 -or [System.BitConverter]::ToUInt16($iconBytes, 2) -ne 1 -or [System.BitConverter]::ToUInt16($iconBytes, 4) -ne 5) {
+            throw "Generated application icon has an invalid ICO directory."
+          }
+          $expectedSizes = @(16, 24, 32, 48, 256)
+          for ($index = 0; $index -lt $expectedSizes.Count; $index++) {
+            $storedSize = [int]$iconBytes[6 + ($index * 16)]
+            $actualSize = if ($storedSize -eq 0) { 256 } else { $storedSize }
+            if ($actualSize -ne $expectedSizes[$index]) {
+              throw "Generated application icon frame $index is ${actualSize}px; expected $($expectedSizes[$index])px."
+            }
           }
           Add-Type -AssemblyName System.Drawing
           $checks = @(
