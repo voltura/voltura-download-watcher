@@ -9,6 +9,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private const uint SetWindowPosNoMove = 0x0002;
     private const uint SetWindowPosNoZOrder = 0x0004;
     private const uint SetWindowPosNoActivate = 0x0010;
+    private const uint PlaySoundNodefault = 0x0002;
+    private const uint PlaySoundFilename = 0x00020000;
     private static readonly string SettingsPath = System.IO.Path.Combine(
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
         "VolturaDownloadWatcher",
@@ -51,8 +53,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private System.Windows.Forms.ToolStripMenuItem? _checkReleaseMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _downloadReleaseMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _dailyUpdateChecksMenuItem;
-    private System.Media.SoundPlayer? _sparkPlayer;
-    private System.IO.MemoryStream? _sparkStream;
+    private readonly string _sparkSoundPath;
     private bool _isMuted;
     private System.Windows.Controls.ToolTip? _activeToolTip;
     private bool _watcherRecoveryQueued;
@@ -108,16 +109,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _updateAvailable = ReleaseUpdateChecker.IsNewer(_latestReleaseVersion, GetDisplayVersion());
         ApplySort();
         UpdateMuteIcon();
-        _sparkStream = new System.IO.MemoryStream(CreateSparkWaveBytes());
-        _sparkPlayer = new System.Media.SoundPlayer(_sparkStream);
-        try
-        {
-            _sparkPlayer.Load();
-        }
-        catch (System.Exception ex)
-        {
-            ActivityLog.WriteInteraction("load-sound", string.Empty, 0, $"failed:{FormatError(ex)}");
-        }
+        _sparkSoundPath = System.IO.Path.Combine(
+            System.AppContext.BaseDirectory,
+            "Assets",
+            "electric-spark.wav");
 
         _freshnessTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -525,6 +520,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _isMuted = !_isMuted;
         SaveCurrentSettings("play-sound-on-download", (!_isMuted).ToString(System.Globalization.CultureInfo.InvariantCulture));
         UpdateMuteIcon();
+        if (!_isMuted)
+        {
+            PlaySpark();
+        }
     }
 
     private void ToggleMonitoring_Click(object sender, System.Windows.RoutedEventArgs e) => ToggleMonitoring();
@@ -1223,6 +1222,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             _isMuted = !_isMuted;
             SaveCurrentSettings("play-sound-on-download", (!_isMuted).ToString(System.Globalization.CultureInfo.InvariantCulture));
             UpdateMuteIcon();
+            if (!_isMuted)
+            {
+                PlaySpark();
+            }
         };
 
         _deleteToRecycleBinMenuItem = new System.Windows.Forms.ToolStripMenuItem("Delete to Recycle Bin")
@@ -1381,6 +1384,13 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             Dispatcher.Invoke(() => ConfirmDeleteAllDownloads(invocationPoint));
         };
 
+        var cleanupDeletedFiles = new System.Windows.Forms.ToolStripMenuItem("Cleanup deleted files")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        cleanupDeletedFiles.Click += (_, _) => Dispatcher.Invoke(CleanupDeletedFiles);
+
         var exit = new System.Windows.Forms.ToolStripMenuItem("Exit")
         {
             ForeColor = menu.ForeColor,
@@ -1407,6 +1417,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         menu.Items.Add(openLog);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(deleteAllDownloads);
+        menu.Items.Add(cleanupDeletedFiles);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(_aboutMenuItem);
         menu.Items.Add(exit);
@@ -1608,6 +1619,25 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         }
     }
 
+    private void CleanupDeletedFiles()
+    {
+        var deletedEntries = _downloads
+            .Where(entry => !System.IO.File.Exists(entry.FullPath))
+            .ToArray();
+        foreach (var entry in deletedEntries)
+        {
+            _downloads.Remove(entry);
+            ActivityLog.WriteInteraction("cleanup-deleted", entry.FileName, entry.FileSizeBytes);
+        }
+
+        ActivityLog.WriteInteraction(
+            "cleanup-deleted-summary",
+            string.Empty,
+            0,
+            $"ok;count={deletedEntries.Length}");
+        RefreshDownloadsView();
+    }
+
     private static System.Collections.Generic.List<string> DeleteAllDownloads(
         System.Collections.Generic.IEnumerable<string> files,
         bool recycle)
@@ -1690,7 +1720,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 using (var sourceBitmap = sourceIcon.ToBitmap())
                 using (var attributes = new System.Drawing.Imaging.ImageAttributes())
                 {
-                    var opacity = isPaused ? 0.42f : isActive ? 1.0f : 0.96f;
+                    var opacity = isPaused ? 0.66f : isActive ? 1.0f : 0.96f;
                     var matrix = new System.Drawing.Imaging.ColorMatrix { Matrix33 = opacity };
                     attributes.SetColorMatrix(matrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
                     graphics.DrawImage(
@@ -1716,13 +1746,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
             if (isPaused)
             {
-                using var pauseBackdrop = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(205, 3, 18, 9));
-                using var pauseOutline = new System.Drawing.Pen(System.Drawing.Color.FromArgb(145, 58, 156, 86), 1.2f);
-                using var pauseFill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(205, 76, 174, 101));
-                graphics.FillRectangle(pauseBackdrop, 7, 6, 18, 20);
-                graphics.DrawRectangle(pauseOutline, 7, 6, 18, 20);
-                graphics.FillRectangle(pauseFill, 11, 10, 3, 12);
-                graphics.FillRectangle(pauseFill, 18, 10, 3, 12);
+                using var pauseGlow = new System.Drawing.Pen(System.Drawing.Color.FromArgb(175, 5, 28, 12), 5.5f);
+                using var pauseFill = new System.Drawing.Pen(System.Drawing.Color.FromArgb(245, 218, 255, 73), 3.1f);
+                pauseGlow.StartCap = System.Drawing.Drawing2D.LineCap.Square;
+                pauseGlow.EndCap = System.Drawing.Drawing2D.LineCap.Square;
+                pauseFill.StartCap = System.Drawing.Drawing2D.LineCap.Square;
+                pauseFill.EndCap = System.Drawing.Drawing2D.LineCap.Square;
+                graphics.DrawLine(pauseGlow, 12, 10, 12, 21);
+                graphics.DrawLine(pauseGlow, 20, 10, 20, 21);
+                graphics.DrawLine(pauseFill, 12, 10, 12, 21);
+                graphics.DrawLine(pauseFill, 20, 10, 20, 21);
             }
 
             if (hasUpdate)
@@ -2607,55 +2640,36 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void PlaySpark()
     {
-        if (_isMuted || _sparkPlayer is null)
+        if (_isMuted)
         {
             return;
         }
 
-        try
+        var soundPath = _sparkSoundPath;
+        _ = System.Threading.Tasks.Task.Run(() =>
         {
-            _sparkPlayer.Stop();
-            _sparkPlayer.Play();
-        }
-        catch (System.Exception ex)
-        {
-            ActivityLog.WriteInteraction("play-sound", string.Empty, 0, $"failed:{FormatError(ex)}");
-        }
-    }
+            try
+            {
+                if (!System.IO.File.Exists(soundPath))
+                {
+                    ActivityLog.WriteInteraction("play-sound", soundPath, 0, "failed:asset-missing");
+                    return;
+                }
 
-    private static byte[] CreateSparkWaveBytes()
-    {
-        const int sampleRate = 22050;
-        const double durationSeconds = 0.12;
-        const int channels = 1;
-        const short bitsPerSample = 16;
-        var sampleCount = (int)(sampleRate * durationSeconds);
-        var dataSize = sampleCount * channels * (bitsPerSample / 8);
-        var bytes = new byte[44 + dataSize];
-        using var ms = new System.IO.MemoryStream(bytes);
-        using var writer = new System.IO.BinaryWriter(ms, System.Text.Encoding.ASCII, true);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(36 + dataSize);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("WAVEfmt "));
-        writer.Write(16);
-        writer.Write((short)1);
-        writer.Write((short)channels);
-        writer.Write(sampleRate);
-        writer.Write(sampleRate * channels * (bitsPerSample / 8));
-        writer.Write((short)(channels * (bitsPerSample / 8)));
-        writer.Write(bitsPerSample);
-        writer.Write(System.Text.Encoding.ASCII.GetBytes("data"));
-        writer.Write(dataSize);
-        for (var i = 0; i < sampleCount; i++)
-        {
-            var t = (double)i / sampleRate;
-            var env = System.Math.Exp(-18 * t);
-            var sample = System.Math.Sin(2 * System.Math.PI * 900 * t) * env * 0.35 +
-                         System.Math.Sin(2 * System.Math.PI * 1320 * t) * System.Math.Exp(-28 * t) * 0.22;
-            writer.Write((short)(sample * short.MaxValue));
-        }
-
-        return bytes;
+                if (!PlaySound(soundPath, System.IntPtr.Zero, PlaySoundFilename | PlaySoundNodefault))
+                {
+                    ActivityLog.WriteInteraction(
+                        "play-sound",
+                        string.Empty,
+                        0,
+                        $"failed:winmm:{System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ActivityLog.WriteInteraction("play-sound", string.Empty, 0, $"failed:{FormatError(ex)}");
+            }
+        });
     }
 
     private AppSettings LoadSettings()
@@ -2754,6 +2768,13 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     [System.Runtime.InteropServices.DllImport("ole32.dll")]
     private static extern void CoTaskMemFree(System.IntPtr ptr);
+
+    [System.Runtime.InteropServices.DllImport("winmm.dll", EntryPoint = "PlaySoundW", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool PlaySound(
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string sound,
+        System.IntPtr module,
+        uint flags);
 
     private static string? GetKnownFolderPath(System.Guid folderId)
     {

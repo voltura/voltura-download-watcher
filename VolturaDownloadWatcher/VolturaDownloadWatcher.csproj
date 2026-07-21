@@ -25,6 +25,10 @@
     <Resource Include="Assets\voltura-download-watcher.ico" />
     <Resource Include="..\docs\assets\voltura-download-watcher-social-preview.png"
               Link="Assets\voltura-download-watcher-social-preview.png" />
+    <Content Include="Assets\electric-spark.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

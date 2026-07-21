@@ -153,6 +153,12 @@ internal static class ActivityLog
                 deleted.SizeBytes = System.Math.Max(deleted.SizeBytes, sizeBytes);
             }
 
+            if (activity == "interaction:cleanup-deleted" && source == "ok")
+            {
+                latestByName.Remove(fileName);
+                continue;
+            }
+
             if (activity == "interaction:sha256-calculated"
                 && latestByName.TryGetValue(fileName, out var hashed)
                 && source.StartsWith("ok;sha256=", System.StringComparison.Ordinal))

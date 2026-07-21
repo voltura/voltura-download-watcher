@@ -62,4 +62,20 @@ public sealed class ActivityLogHistoryTests
 
         Xunit.Assert.Equal(hash, Xunit.Assert.Single(rows).Sha256);
     }
+
+    [Xunit.Fact]
+    public void ParseRecentDownloads_CleanupRemovesDeletedHistoryUntilDownloadedAgain()
+    {
+        var rows = ActivityLog.ParseRecentDownloads(
+        [
+            "2026-07-21T09:00:00.0000000+02:00\tdownload\twatcher\t\"old.torrent\"\t10 B",
+            "2026-07-21T09:00:01.0000000+02:00\tdelete\texternal\t\"old.torrent\"\t10 B",
+            "2026-07-21T09:01:00.0000000+02:00\tinteraction:cleanup-deleted\tok\t\"old.torrent\"\t10 B",
+            "2026-07-21T09:02:00.0000000+02:00\tdownload\twatcher\t\"new.torrent\"\t20 B"
+        ],
+        40);
+
+        var row = Xunit.Assert.Single(rows);
+        Xunit.Assert.Equal("new.torrent", row.FileName);
+    }
 }
