@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <ApplicationIcon>Assets\voltura-download-watcher.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <AssemblyTitle>Voltura Download Watcher</AssemblyTitle>
+    <Product>Voltura Download Watcher</Product>
+    <Company>Voltura AB</Company>
+    <Authors>Joakim Skoglund</Authors>
+    <Copyright>Copyright (c) Voltura AB</Copyright>
+    <RepositoryUrl>https://github.com/voltura/voltura-download-watcher</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/voltura/voltura-download-watcher</PackageProjectUrl>
+    <Description>Minimal cyberpunk Downloads folder activity watcher.</Description>
+  </PropertyGroup>
+
+</Project>
