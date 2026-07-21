@@ -20,6 +20,8 @@ Safe Recycle Bin deletion, direct-delete opt-out, optional sound/startup behavio
 - Recycle Bin deletion by default, with a direct-delete opt-out and a daily activity text log for downloads, file actions, setting changes, and removals.
 - Tray actions open Downloads or explicitly delete every top-level file in Downloads, with a themed warning that reflects Recycle Bin versus permanent deletion.
 - File-operation races fail gracefully with a themed dismiss-only notice, while timestamped diagnostic details are queued to the log off the UI thread.
+- Closing the taskbar window hides it to the notification area, explains that behavior once, and keeps monitoring until the tray Exit command is used.
+- The notification-area icon pulses during browser download staging; its tooltip updates immediately for progress and briefly consolidates completed download bursts.
 - Single-instance activation brings the existing watcher forward instead of opening another panel.
 
 ## Develop

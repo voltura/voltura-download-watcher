@@ -50,6 +50,8 @@
 - The row context menu is an icon-only horizontal strip for copy, cut, rename, and delete. Copy/cut use Windows `FileDrop` plus `Preferred DropEffect`; rename is limited to a validated filename in the same directory and uses the custom `RenameDialog` for overwrite confirmation.
 - File-menu interactions and actual setting transitions are written to the daily activity log. Do not replace themed file prompts with stock `MessageBox` UI.
 - The WPF window/taskbar icon comes from the generated multi-resolution application ICO. The notification-area icon remains a separately drawn muted icon so changing one does not accidentally shrink the other.
+- Normal WPF close is close-to-tray. Keep screenshot mode and explicit tray Exit exempt, persist the one-time explanatory balloon flag, and never let ordinary `WM_CLOSE` terminate monitoring.
+- Tray status is immediate and replace-only, not a balloon queue: progress pulses the active icon, one completion names the file, and bursts consolidate to a count for four seconds.
 - The tray menu can delete every top-level file in Downloads, not only tracked rows. It must always show `ConfirmationDialog`, respect `DeleteToRecycleBin`, mark tracked entries as app-deleted, process files off the UI thread, and log every result.
 - `ActivityLog` is a single-reader background channel. Capture occurrence timestamps before enqueueing; never perform log creation, rotation, cleanup, retry delays, or appends on the WPF dispatcher.
 - File-operation exceptions belong in the log as type plus message. UI errors must use the friendly dismiss-only `NoticeDialog`; never show raw exception text or allow copy/cut/rename/delete races to escape an event handler.

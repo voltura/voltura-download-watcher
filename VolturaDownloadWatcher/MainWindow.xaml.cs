@@ -4,6 +4,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 {
     private const int MaxItems = 40;
     private const int FreshDownloadSeconds = 8;
+    private const int TrayCompletionStatusSeconds = 4;
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
     private const uint SetWindowPosNoActivate = 0x0010;
@@ -37,8 +38,12 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private bool _watcherRecoveryQueued;
     private bool _trayPulseIsBright;
     private bool _deleteToRecycleBin;
+    private bool _closeToTrayNotificationShown;
+    private bool _allowClose;
+    private int _exitLogged;
     private DownloadSortMode _sortMode;
     private bool _sortDescending;
+    private readonly System.Collections.Generic.List<(System.DateTime OccurredAt, string FileName)> _recentDownloads = new();
     private long _nextSortPinOrder = System.DateTime.UtcNow.Ticks;
     private FilterMode _activeFilter = FilterMode.All;
 
@@ -60,6 +65,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         var settings = LoadSettings();
         _isMuted = settings.IsMuted;
         _deleteToRecycleBin = settings.DeleteToRecycleBin;
+        _closeToTrayNotificationShown = settings.CloseToTrayNotificationShown;
         _sortMode = settings.SortMode;
         _sortDescending = settings.SortDescending;
         ApplySort();
@@ -74,6 +80,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _freshnessTimer.Tick += (_, _) =>
         {
             RefreshFreshness();
+            UpdateTrayStatus();
             EnforceTopmost();
         };
         _trayPulseTimer = new System.Windows.Threading.DispatcherTimer
@@ -154,6 +161,19 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         LoadInitialDownloads();
         RefreshDownloadsView();
         _freshnessTimer.Start();
+    }
+
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_allowClose
+            || _isScreenshotMode
+            || System.Windows.Application.Current.Dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        HideToTray(showFirstTimeNotification: true);
     }
 
     private void LoadScreenshotDownloads()
@@ -379,7 +399,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         UpdateMuteIcon();
     }
 
-    private void HideToTray_Click(object sender, System.Windows.RoutedEventArgs e) => HideToTray();
+    private void HideToTray_Click(object sender, System.Windows.RoutedEventArgs e) =>
+        HideToTray(showFirstTimeNotification: true);
 
     private void FilterButton_Click(object sender, System.Windows.RoutedEventArgs e)
     {
@@ -671,14 +692,52 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private static string FormatError(System.Exception exception) =>
         $"{exception.GetType().FullName}: {exception.Message}";
 
-    public void HideToTray()
+    private async System.Threading.Tasks.Task LogExitAndFlushAsync()
+    {
+        LogExitBestEffort();
+        await System.Threading.Tasks.Task.WhenAny(
+            ActivityLog.FlushAsync(),
+            System.Threading.Tasks.Task.Delay(500));
+    }
+
+    public void LogExitBestEffort()
+    {
+        if (System.Threading.Interlocked.Exchange(ref _exitLogged, 1) == 0)
+        {
+            ActivityLog.WriteLifecycle("exit");
+        }
+    }
+
+    public void HideToTray(bool showFirstTimeNotification = false)
     {
         Hide();
         ShowInTaskbar = false;
+        ActivityLog.WriteInteraction("hide-to-tray", string.Empty, 0);
+        if (showFirstTimeNotification)
+        {
+            ShowCloseToTrayNotificationOnce();
+        }
+    }
+
+    private void ShowCloseToTrayNotificationOnce()
+    {
+        if (_closeToTrayNotificationShown || _notifyIcon is null)
+        {
+            return;
+        }
+
+        _closeToTrayNotificationShown = true;
+        SaveCurrentSettings("close-to-tray-notification-shown", bool.TrueString);
+        _notifyIcon.ShowBalloonTip(
+            3000,
+            "Voltura Download Watcher is still running",
+            "The window was closed, but Downloads monitoring continues. Use the notification-area icon to reopen the window or exit the app.",
+            System.Windows.Forms.ToolTipIcon.Info);
     }
 
     public void ShowFromTray()
     {
+        ActivityLog.WriteInteraction("show-from-tray", string.Empty, 0);
         ShowInTaskbar = true;
         if (!IsVisible)
         {
@@ -771,7 +830,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _trayActiveIcon = CreateTrayIcon(isActive: true);
         _notifyIcon = new System.Windows.Forms.NotifyIcon
         {
-            Text = "Voltura Download Watcher",
+            Text = TrayStatusText.Build(isDownloadInProgress: false, completedFileName: null),
             Icon = _trayIcon,
             Visible = true,
             ContextMenuStrip = BuildTrayMenu()
@@ -785,6 +844,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 Dispatcher.Invoke(ShowFromTray);
             }
         };
+        UpdateTrayStatus();
     }
 
     private System.Windows.Forms.ContextMenuStrip BuildTrayMenu()
@@ -883,13 +943,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ForeColor = menu.ForeColor,
             Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
         };
-        exit.Click += (_, _) =>
+        exit.Click += async (_, _) =>
         {
-            Dispatcher.Invoke(() =>
+            await Dispatcher.InvokeAsync(async () =>
             {
+                _allowClose = true;
+                await LogExitAndFlushAsync();
                 DisposeTrayIcon();
                 System.Windows.Application.Current.Shutdown();
-            });
+            }).Task.Unwrap();
         };
 
         menu.Items.Add(show);
@@ -1246,6 +1308,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             dot.Opacity = 0.6;
             scale.ScaleX = 1;
             scale.ScaleY = 1;
+            UpdateTrayStatus();
             return;
         }
 
@@ -1258,6 +1321,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             }
             _trayPulseTimer.Start();
         }
+
+        UpdateTrayStatus();
 
         var pulse = new System.Windows.Media.Animation.DoubleAnimation
         {
@@ -1279,6 +1344,30 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         dot.BeginAnimation(System.Windows.UIElement.OpacityProperty, pulse);
         scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, scalePulse);
         scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, scalePulse);
+    }
+
+    private void SetDownloadedTrayStatus(string fileName)
+    {
+        _recentDownloads.Add((System.DateTime.Now, fileName));
+        UpdateTrayStatus();
+    }
+
+    private void UpdateTrayStatus()
+    {
+        if (_notifyIcon is null)
+        {
+            return;
+        }
+
+        var cutoff = System.DateTime.Now.AddSeconds(-TrayCompletionStatusSeconds);
+        _recentDownloads.RemoveAll(download => download.OccurredAt <= cutoff);
+        var completedFileName = _recentDownloads.Count == 1
+            ? _recentDownloads[0].FileName
+            : null;
+        _notifyIcon.Text = TrayStatusText.Build(
+            _activeBrowserDownloads.Count > 0,
+            completedFileName,
+            _recentDownloads.Count);
     }
 
     private void OnWatcherError(object sender, System.IO.ErrorEventArgs e)
@@ -1338,6 +1427,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 existing.IsRemovalRecent = !existsNow;
                 MoveToTop(existing);
                 ActivityLog.WriteDownload(fileName, existing.FileSizeBytes);
+                SetDownloadedTrayStatus(fileName);
                 if (!existsNow)
                 {
                     ActivityLog.WriteDeletion("external", fileName, existing.FileSizeBytes);
@@ -1370,6 +1460,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             _downloads.Insert(0, download);
 
             ActivityLog.WriteDownload(fileName, fileSizeBytes);
+            SetDownloadedTrayStatus(fileName);
             if (!fileExistsNow)
             {
                 ActivityLog.WriteDeletion("external", fileName, fileSizeBytes);
@@ -1718,7 +1809,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             IsMuted = _isMuted,
             DeleteToRecycleBin = _deleteToRecycleBin,
             SortMode = _sortMode,
-            SortDescending = _sortDescending
+            SortDescending = _sortDescending,
+            CloseToTrayNotificationShown = _closeToTrayNotificationShown
         });
         ActivityLog.WriteSettingChange(setting, value);
     }

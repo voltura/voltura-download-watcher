@@ -52,6 +52,21 @@ internal static class ActivityLog
     public static void WriteSettingChange(string setting, string value) =>
         Write($"setting:{setting}", value, string.Empty, 0);
 
+    public static void WriteLifecycle(string state) =>
+        Write("lifecycle", state, string.Empty, 0);
+
+    public static System.Threading.Tasks.Task FlushAsync()
+    {
+        var completion = new System.Threading.Tasks.TaskCompletionSource(
+            System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!Queue.Writer.TryWrite(LogRequest.Ensure(completion)))
+        {
+            completion.TrySetResult();
+        }
+
+        return completion.Task;
+    }
+
     private static void Write(string activity, string source, string fileName, long sizeBytes)
     {
         Queue.Writer.TryWrite(new LogRequest(

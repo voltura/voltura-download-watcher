@@ -55,6 +55,7 @@ public partial class App : System.Windows.Application
                 _mainWindow.Activate();
                 _mainWindow.Topmost = true;
             }));
+            ActivityLog.WriteLifecycle("start");
             WriteStartupLog("Startup OK");
         }
         catch (System.Exception ex)
@@ -66,6 +67,7 @@ public partial class App : System.Windows.Application
 
     private void Application_Exit(object sender, System.Windows.ExitEventArgs e)
     {
+        _mainWindow?.LogExitBestEffort();
         _mainWindow?.DisposeTrayIcon();
         _showExistingRegistration?.Unregister(null);
         _showExistingRegistration = null;
