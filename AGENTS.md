@@ -16,7 +16,7 @@
 - Start `FileSystemWatcher` before the startup directory snapshot so short-lived files cannot fall into a blind window.
 - Attach watcher event handlers before setting `EnableRaisingEvents = true`.
 - Handle `FileSystemWatcher.Error` by recreating the watcher and reconciling the directory snapshot.
-- Apply `IsValidDownloadName` before limiting startup results to 20 files.
+- Apply `IsValidDownloadName` before limiting startup results to 40 files.
 - Ignore browser/application staging names such as `.crdownload`, `.tmp`, `.part`, `.partial`, `.download`, and `Unconfirmed *`.
 - Browser staging files never enter the download list. Chrome, Edge, Brave, Opera, and Vivaldi `.crdownload` files plus Firefox-style `.part`, `.partial`, and `.download` files make the header status dot and tray icon pulse until the browser renames or deletes every active temporary file.
 - Real short-lived files, including `.torrent`, must still be recorded even if another app removes them immediately.
@@ -44,6 +44,15 @@
 - Keep stock Windows hover chrome out of buttons, tooltips, scrollbars, and context menus.
 - The tray menu is custom-rendered and owns the persisted `Start with Windows` and `Play sound on download` toggles. Clean installs default both settings to off.
 - The tray menu also exposes `Delete to Recycle Bin` and `Open log`; the header log glyph opens the same `.txt` file through the Windows default application.
+- The header sort glyph toggles an icon-only WPF `Popup` with date, size, and name rows. Clicking the active row reverses direction; a newly selected mode defaults to date descending, size descending, or name ascending.
+- Sort mode and direction persist in `AppSettings`. Use `ICollectionView.SortDescriptions` and live sorting for file-size changes; do not rebuild the row collection to sort because that resets hover/marquee state.
+- Fresh downloads temporarily pin above the selected sort for their eight-second pulse. Every arrival has an independent sequence and deadline so bursts remain at the top and release into the selected sort first-in-first-out.
+- The row context menu is an icon-only horizontal strip for copy, cut, rename, and delete. Copy/cut use Windows `FileDrop` plus `Preferred DropEffect`; rename is limited to a validated filename in the same directory and uses the custom `RenameDialog` for overwrite confirmation.
+- File-menu interactions and actual setting transitions are written to the daily activity log. Do not replace themed file prompts with stock `MessageBox` UI.
+- The WPF window/taskbar icon comes from the generated multi-resolution application ICO. The notification-area icon remains a separately drawn muted icon so changing one does not accidentally shrink the other.
+- The tray menu can delete every top-level file in Downloads, not only tracked rows. It must always show `ConfirmationDialog`, respect `DeleteToRecycleBin`, mark tracked entries as app-deleted, process files off the UI thread, and log every result.
+- `ActivityLog` is a single-reader background channel. Capture occurrence timestamps before enqueueing; never perform log creation, rotation, cleanup, retry delays, or appends on the WPF dispatcher.
+- File-operation exceptions belong in the log as type plus message. UI errors must use the friendly dismiss-only `NoticeDialog`; never show raw exception text or allow copy/cut/rename/delete races to escape an event handler.
 
 ## Native Interop
 
@@ -67,7 +76,7 @@
 ## Behavior To Preserve
 
 - Capture file create and rename events immediately so short-lived downloads still appear.
-- Keep the list capped at the 20 most recent items.
+- Keep the list capped at the 40 most recent items.
 - Fresh items should appear brighter than older ones.
 - Preserve the tray-first startup behavior unless the user asks otherwise.
 
@@ -91,5 +100,5 @@
 - After rebuilding, launch the executable and verify it remains alive and responsive for several seconds.
 - Check `%APPDATA%\VolturaDownloadWatcher\startup.log` after startup or any apparent crash.
 - Manually verify mouse-wheel scrolling, scrollbar thumb dragging, window edge resizing, row open, context-menu delete, tray restore, tooltip layering, and long-filename marquee behavior.
-- Test with an empty Downloads folder, fewer than 20 files, more than 20 files, temporary browser files, a quickly removed `.torrent`, a deleted-and-recreated path, and watcher recovery.
+- Test with an empty Downloads folder, fewer than 40 files, more than 40 files, temporary browser files, a quickly removed `.torrent`, a deleted-and-recreated path, and watcher recovery.
 - Inspect generated PNG/BMP assets visually after branding changes. CI regenerates branding and validates ICO frames plus NSIS bitmap dimensions/pixel format. `System.Drawing` PNG/BMP encoding differs between Windows PowerShell 5.1 and PowerShell 7, so CI must not binary-diff generated image bytes. CI intentionally does not capture the interactive desktop screenshot.

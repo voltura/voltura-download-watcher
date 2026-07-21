@@ -21,4 +21,8 @@
     <Description>Minimal cyberpunk Downloads folder activity watcher.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Resource Include="Assets\voltura-download-watcher.ico" />
+  </ItemGroup>
+
 </Project>

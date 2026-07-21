@@ -1,0 +1,124 @@
+<Window x:Class="VolturaDownloadWatcher.NoticeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="File operation failed"
+        Width="340"
+        Height="158"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="Bahnschrift SemiCondensed"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <Style TargetType="ToolTip">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Background" Value="#F20A0F0C" />
+            <Setter Property="Foreground" Value="#7CFF9A" />
+            <Setter Property="BorderBrush" Value="#6B4BFF7A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="FontFamily" Value="Bahnschrift SemiCondensed" />
+            <Setter Property="FontSize" Value="9" />
+            <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Background" Value="#E009100B" />
+            <Setter Property="BorderBrush" Value="#8066C77A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Shell"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shell" Property="Background" Value="#F0142017" />
+                                <Setter TargetName="Shell" Property="BorderBrush" Value="#D07CFF9A" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shell" Property="Opacity" Value="0.65" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="#FA070C09"
+            BorderBrush="#B05CD77A"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="14"
+            MouseLeftButtonDown="Shell_MouseLeftButtonDown">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Path Data="M8,1 L15,14 H1 Z M8,5 V9 M8,11.5 V12"
+                      Stroke="#FF5574"
+                      StrokeThickness="1.4"
+                      StrokeStartLineCap="Round"
+                      StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round"
+                      Width="16"
+                      Height="16"
+                      Margin="0,0,8,0" />
+                <TextBlock Text="FILE OPERATION // INTERRUPTED"
+                           Foreground="#FF718A"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock x:Name="MessageText"
+                       Grid.Row="1"
+                       Margin="0,12,0,9"
+                       Foreground="#C5E9CD"
+                       FontSize="11"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center" />
+            <Button Grid.Row="2"
+                    HorizontalAlignment="Right"
+                    Click="Dismiss_Click"
+                    ToolTip="Dismiss">
+                <Path Data="M2,8 L6,12 L14,3"
+                      Stroke="#7CFF9A"
+                      StrokeThickness="1.8"
+                      StrokeStartLineCap="Round"
+                      StrokeEndLineCap="Round"
+                      StrokeLineJoin="Round"
+                      Width="15"
+                      Height="14" />
+            </Button>
+        </Grid>
+    </Border>
+</Window>

@@ -15,11 +15,26 @@ public sealed class DownloadEntry : INotifyPropertyChanged
     private bool _deleteRequested;
     private bool _isNewest;
     private long _fileSizeBytes;
+    private long _sortPinOrder;
+    private DateTime _createdAt;
     private DateTime _touchedAt = DateTime.Now;
 
-    public required string FileName { get; init; }
-    public required string FullPath { get; init; }
-    public required DateTime CreatedAt { get; init; }
+    public required string FileName
+    {
+        get;
+        set => SetField(ref field, value);
+    }
+
+    public required string FullPath
+    {
+        get;
+        set => SetField(ref field, value);
+    }
+    public required DateTime CreatedAt
+    {
+        get => _createdAt;
+        set => SetField(ref _createdAt, value);
+    }
 
     public DateTime TouchedAt
     {
@@ -65,6 +80,14 @@ public sealed class DownloadEntry : INotifyPropertyChanged
         set => SetField(ref _fileSizeBytes, System.Math.Max(0, value));
     }
 
+    public long SortPinOrder
+    {
+        get => _sortPinOrder;
+        set => SetField(ref _sortPinOrder, value);
+    }
+
+    public System.DateTime SortPinnedUntil { get; set; }
+
     public string DownloadedAtText => CreatedAt.ToString("MMdd HH:mm:ss", CultureInfo.InvariantCulture);
     public string FileSizeText => FormatFileSize(FileSizeBytes);
     public string DownloadedMetaText => $"{DownloadedAtText}  {FileSizeText}";
@@ -109,6 +132,11 @@ public sealed class DownloadEntry : INotifyPropertyChanged
         else if (propertyName is nameof(FileSizeBytes))
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileSizeText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadedMetaText)));
+        }
+        else if (propertyName is nameof(CreatedAt))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadedAtText)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadedMetaText)));
         }
     }

@@ -13,10 +13,13 @@ Safe Recycle Bin deletion, direct-delete opt-out, optional sound/startup behavio
 ## Highlights
 
 - Borderless, resizable, always-on-top WPF panel with a compact cyberpunk blueprint UI.
-- Shows the latest 20 downloads with compact timestamps and adaptive file sizes, and marks removed files without launching dead paths.
+- Shows the latest 40 downloads with compact timestamps and adaptive file sizes, and marks removed files without launching dead paths.
+- Provides a compact icon flyout for persistent date, size, or filename sorting with reversible direction.
 - Detects browser staging activity without listing temporary `.crdownload`, `.part`, `.partial`, or `.download` files.
-- Single-click shell opening, themed file deletion, tray controls, optional startup registration, and optional download sound.
-- Recycle Bin deletion by default, with a direct-delete opt-out and a daily activity text log that identifies app versus external removals.
+- Single-click shell opening plus icon-only copy, cut, safe in-folder rename, and themed file deletion actions.
+- Recycle Bin deletion by default, with a direct-delete opt-out and a daily activity text log for downloads, file actions, setting changes, and removals.
+- Tray actions open Downloads or explicitly delete every top-level file in Downloads, with a themed warning that reflects Recycle Bin versus permanent deletion.
+- File-operation races fail gracefully with a themed dismiss-only notice, while timestamped diagnostic details are queued to the log off the UI thread.
 - Single-instance activation brings the existing watcher forward instead of opening another panel.
 
 ## Develop

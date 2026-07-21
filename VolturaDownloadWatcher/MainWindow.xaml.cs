@@ -2,7 +2,8 @@ namespace VolturaDownloadWatcher;
 
 public partial class MainWindow : System.Windows.Window, System.ComponentModel.INotifyPropertyChanged, System.IDisposable
 {
-    private const int MaxItems = 20;
+    private const int MaxItems = 40;
+    private const int FreshDownloadSeconds = 8;
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
     private const uint SetWindowPosNoActivate = 0x0010;
@@ -14,6 +15,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private readonly System.Collections.ObjectModel.ObservableCollection<DownloadEntry> _downloads = new();
     private readonly System.Collections.ObjectModel.ObservableCollection<FilterChip> _filterButtons = new();
     private readonly System.Collections.Generic.HashSet<string> _activeBrowserDownloads = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _appRenameTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly System.ComponentModel.ICollectionView _downloadsView;
     private readonly string _downloadsPath = GetDownloadsPath();
     private readonly bool _isScreenshotMode = string.Equals(
@@ -31,10 +33,13 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private System.Media.SoundPlayer? _sparkPlayer;
     private System.IO.MemoryStream? _sparkStream;
     private bool _isMuted;
-    private bool _isTooltipOpen;
+    private System.Windows.Controls.ToolTip? _activeToolTip;
     private bool _watcherRecoveryQueued;
     private bool _trayPulseIsBright;
     private bool _deleteToRecycleBin;
+    private DownloadSortMode _sortMode;
+    private bool _sortDescending;
+    private long _nextSortPinOrder = System.DateTime.UtcNow.Ticks;
     private FilterMode _activeFilter = FilterMode.All;
 
     public MainWindow()
@@ -55,6 +60,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         var settings = LoadSettings();
         _isMuted = settings.IsMuted;
         _deleteToRecycleBin = settings.DeleteToRecycleBin;
+        _sortMode = settings.SortMode;
+        _sortDescending = settings.SortDescending;
+        ApplySort();
         UpdateMuteIcon();
         _sparkStream = new System.IO.MemoryStream(CreateSparkWaveBytes());
         _sparkPlayer = new System.Media.SoundPlayer(_sparkStream);
@@ -227,13 +235,18 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             return;
         }
 
-        _isTooltipOpen = true;
+        _activeToolTip = toolTip;
+        EnforceTopmost();
         PromoteTooltip(toolTip);
     }
 
     private void ToolTip_Closed(object sender, System.Windows.RoutedEventArgs e)
     {
-        _isTooltipOpen = false;
+        if (ReferenceEquals(_activeToolTip, sender))
+        {
+            _activeToolTip = null;
+        }
+
         EnforceTopmost();
     }
 
@@ -317,15 +330,52 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         return null;
     }
 
-    private void OpenDownloadsFolder_Click(object sender, System.Windows.RoutedEventArgs e) => OpenPathInShell(_downloadsPath);
+    private void OpenDownloadsFolder_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        ActivityLog.WriteInteraction("open-downloads-folder", _downloadsPath, 0);
+        OpenPathInShell(_downloadsPath);
+    }
 
-    private void OpenActivityLog_Click(object sender, System.Windows.RoutedEventArgs e) =>
-        OpenPathInShell(ActivityLog.EnsureCurrentFile());
+    private async void OpenActivityLog_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        var logPath = await ActivityLog.EnsureCurrentFileAsync();
+        ActivityLog.WriteInteraction("open-log", logPath, 0);
+        OpenPathInShell(logPath);
+    }
+
+    private void ToggleSortMenu_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        SortPopup.IsOpen = !SortPopup.IsOpen;
+        UpdateSortIndicators();
+    }
+
+    private void SortOption_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button button
+            || button.Tag is not string modeName
+            || !System.Enum.TryParse<DownloadSortMode>(modeName, out var selectedMode))
+        {
+            return;
+        }
+
+        if (_sortMode == selectedMode)
+        {
+            _sortDescending = !_sortDescending;
+        }
+        else
+        {
+            _sortMode = selectedMode;
+            _sortDescending = selectedMode is not DownloadSortMode.Name;
+        }
+
+        ApplySort();
+        SaveCurrentSettings("sort", $"{_sortMode}:{(_sortDescending ? "descending" : "ascending")}");
+    }
 
     private void ToggleMute_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         _isMuted = !_isMuted;
-        SaveCurrentSettings();
+        SaveCurrentSettings("play-sound-on-download", (!_isMuted).ToString(System.Globalization.CultureInfo.InvariantCulture));
         UpdateMuteIcon();
     }
 
@@ -426,36 +476,148 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             && border.Tag is DownloadEntry entry
             && entry.ExistsNow)
         {
+            ActivityLog.WriteInteraction("open", entry.FileName, entry.FileSizeBytes);
             OpenPathInShell(entry.FullPath);
             e.Handled = true;
         }
     }
 
-    private void CopyFilename_Click(object sender, System.Windows.RoutedEventArgs e)
+    private void CopyFile_Click(object sender, System.Windows.RoutedEventArgs e)
     {
-        if (sender is System.Windows.Controls.MenuItem item && item.Tag is DownloadEntry entry)
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            System.Windows.Clipboard.SetText(entry.FileName);
+            SetFileClipboard(entry, isCut: false);
         }
     }
 
-    private void CopyFullPath_Click(object sender, System.Windows.RoutedEventArgs e)
+    private void CutFile_Click(object sender, System.Windows.RoutedEventArgs e)
     {
-        if (sender is System.Windows.Controls.MenuItem item && item.Tag is DownloadEntry entry)
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            System.Windows.Clipboard.SetText(entry.FullPath);
+            SetFileClipboard(entry, isCut: true);
         }
+    }
+
+    private void SetFileClipboard(DownloadEntry entry, bool isCut)
+    {
+        var action = isCut ? "cut" : "copy";
+        if (!System.IO.File.Exists(entry.FullPath))
+        {
+            LogOperationFailure(action, entry, "System.IO.FileNotFoundException: file no longer exists");
+            ShowOperationFailure(action, entry.FileName);
+            return;
+        }
+
+        try
+        {
+            var files = new System.Collections.Specialized.StringCollection { entry.FullPath };
+            var data = new System.Windows.DataObject();
+            data.SetFileDropList(files);
+            data.SetData("Preferred DropEffect", new System.IO.MemoryStream(
+                System.BitConverter.GetBytes(isCut ? 2u : 1u),
+                writable: false));
+            System.Windows.Clipboard.SetDataObject(data, copy: true);
+            ActivityLog.WriteInteraction(action, entry.FileName, entry.FileSizeBytes);
+        }
+        catch (System.Exception ex)
+        {
+            LogOperationFailure(action, entry, FormatError(ex));
+            ShowOperationFailure(action, entry.FileName);
+        }
+    }
+
+    private void RenameFile_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is not DownloadEntry entry)
+        {
+            return;
+        }
+
+        if (!System.IO.File.Exists(entry.FullPath))
+        {
+            LogOperationFailure("rename", entry, "System.IO.FileNotFoundException: file no longer exists");
+            ShowOperationFailure("rename", entry.FileName);
+            return;
+        }
+
+        var dialog = new RenameDialog(entry.FullPath) { Owner = this };
+        if (dialog.ShowDialog() is not true)
+        {
+            ActivityLog.WriteInteraction("rename", entry.FileName, entry.FileSizeBytes, "cancelled");
+            return;
+        }
+
+        var targetPath = System.IO.Path.Combine(_downloadsPath, dialog.NewFileName);
+        if (string.Equals(targetPath, entry.FullPath, System.StringComparison.Ordinal))
+        {
+            ActivityLog.WriteInteraction("rename", entry.FileName, entry.FileSizeBytes, "unchanged");
+            return;
+        }
+
+        var oldName = entry.FileName;
+        _appRenameTargets[targetPath] = 0;
+        try
+        {
+            var overwrittenEntry = _downloads.FirstOrDefault(item =>
+                !ReferenceEquals(item, entry)
+                && string.Equals(item.FullPath, targetPath, System.StringComparison.OrdinalIgnoreCase));
+            System.IO.File.Move(entry.FullPath, targetPath, dialog.OverwriteExisting);
+            if (overwrittenEntry is not null)
+            {
+                _downloads.Remove(overwrittenEntry);
+            }
+
+            entry.FileName = dialog.NewFileName;
+            entry.FullPath = targetPath;
+            entry.ExistsNow = true;
+            entry.DeleteRequested = false;
+            entry.DeletionLogged = false;
+            ActivityLog.WriteInteraction(
+                dialog.OverwriteExisting ? "rename-overwrite" : "rename",
+                $"{oldName} -> {entry.FileName}",
+                entry.FileSizeBytes);
+            RefreshDownloadsView();
+        }
+        catch (System.Exception ex)
+        {
+            _appRenameTargets.TryRemove(targetPath, out _);
+            LogOperationFailure("rename", entry, FormatError(ex));
+            ShowOperationFailure("rename", oldName);
+        }
+    }
+
+    private static DownloadEntry? GetContextMenuEntry(object sender)
+    {
+        if (sender is not System.Windows.Controls.MenuItem menuItem)
+        {
+            return null;
+        }
+
+        if (menuItem.Tag is DownloadEntry taggedEntry)
+        {
+            return taggedEntry;
+        }
+
+        return menuItem.Parent is System.Windows.Controls.ContextMenu contextMenu
+            && contextMenu.PlacementTarget is System.Windows.Controls.Border rowBorder
+                ? rowBorder.Tag as DownloadEntry
+                : null;
     }
 
     private void DeleteFile_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         e.Handled = true;
-        if (sender is not System.Windows.Controls.MenuItem menuItem
-            || menuItem.Parent is not System.Windows.Controls.ContextMenu contextMenu
-            || contextMenu.PlacementTarget is not System.Windows.Controls.Border rowBorder
-            || rowBorder.Tag is not DownloadEntry entry
-            || !System.IO.File.Exists(entry.FullPath))
+        if (GetContextMenuEntry(sender) is not DownloadEntry entry)
         {
+            return;
+        }
+        if (!System.IO.File.Exists(entry.FullPath))
+        {
+            LogOperationFailure("delete", entry, "System.IO.FileNotFoundException: file no longer exists");
+            ShowOperationFailure("delete", entry.FileName);
             return;
         }
 
@@ -482,11 +644,32 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 entry.FileName,
                 entry.FileSizeBytes);
         }
-        catch
+        catch (System.Exception ex)
         {
             entry.DeleteRequested = false;
+            LogOperationFailure("delete", entry, FormatError(ex));
+            ShowOperationFailure("delete", entry.FileName);
         }
     }
+
+    private void ShowOperationFailure(string action, string fileName)
+    {
+        var message = action switch
+        {
+            "copy" => $"Could not copy '{fileName}'. The file may have been moved, renamed, or deleted, or the clipboard may be unavailable.",
+            "cut" => $"Could not cut '{fileName}'. The file may have been moved, renamed, or deleted, or the clipboard may be unavailable.",
+            "rename" => $"Could not rename '{fileName}'. The file may have been moved, deleted, locked, or access may have changed.",
+            "delete" => $"Could not delete '{fileName}'. The file may have been moved, renamed, locked, or access may have changed.",
+            _ => $"Could not process '{fileName}'. The file may have changed or become unavailable."
+        };
+        new NoticeDialog(message) { Owner = this }.ShowDialog();
+    }
+
+    private static void LogOperationFailure(string action, DownloadEntry entry, string error) =>
+        ActivityLog.WriteInteraction(action, entry.FileName, entry.FileSizeBytes, $"failed:{error}");
+
+    private static string FormatError(System.Exception exception) =>
+        $"{exception.GetType().FullName}: {exception.Message}";
 
     public void HideToTray()
     {
@@ -516,11 +699,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void EnforceTopmost()
     {
-        if (_isTooltipOpen)
-        {
-            return;
-        }
-
         Topmost = true;
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (handle == System.IntPtr.Zero)
@@ -536,6 +714,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             0,
             0,
             SetWindowPosNoActivate | SetWindowPosNoMove | SetWindowPosNoSize);
+
+        if (_activeToolTip?.IsOpen is true)
+        {
+            PromoteTooltip(_activeToolTip);
+        }
     }
 
     public void DisposeTrayIcon()
@@ -586,12 +769,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         _trayIcon = CreateTrayIcon(isActive: false);
         _trayActiveIcon = CreateTrayIcon(isActive: true);
-        Icon = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
-            _trayIcon.Handle,
-            System.Windows.Int32Rect.Empty,
-            System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
-        Icon.Freeze();
-
         _notifyIcon = new System.Windows.Forms.NotifyIcon
         {
             Text = "Voltura Download Watcher",
@@ -647,6 +824,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             StartupRegistration.SetEnabled(!startWithWindows.Checked);
             startWithWindows.Checked = StartupRegistration.IsEnabled();
+            ActivityLog.WriteSettingChange(
+                "start-with-windows",
+                startWithWindows.Checked.ToString(System.Globalization.CultureInfo.InvariantCulture));
         };
 
         _playSoundMenuItem = new System.Windows.Forms.ToolStripMenuItem("Play sound on download")
@@ -659,7 +839,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _playSoundMenuItem.Click += (_, _) =>
         {
             _isMuted = !_isMuted;
-            SaveCurrentSettings();
+            SaveCurrentSettings("play-sound-on-download", (!_isMuted).ToString(System.Globalization.CultureInfo.InvariantCulture));
             UpdateMuteIcon();
         };
 
@@ -674,7 +854,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             _deleteToRecycleBin = !_deleteToRecycleBin;
             _deleteToRecycleBinMenuItem.Checked = _deleteToRecycleBin;
-            SaveCurrentSettings();
+            SaveCurrentSettings("delete-to-recycle-bin", _deleteToRecycleBin.ToString(System.Globalization.CultureInfo.InvariantCulture));
         };
 
         var openLog = new System.Windows.Forms.ToolStripMenuItem("Open log")
@@ -682,7 +862,21 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ForeColor = menu.ForeColor,
             Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
         };
-        openLog.Click += (_, _) => Dispatcher.Invoke(() => OpenPathInShell(ActivityLog.EnsureCurrentFile()));
+        openLog.Click += (_, _) => Dispatcher.Invoke(() => OpenActivityLog_Click(this, new System.Windows.RoutedEventArgs()));
+
+        var openDownloads = new System.Windows.Forms.ToolStripMenuItem("Open Downloads folder")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        openDownloads.Click += (_, _) => Dispatcher.Invoke(() => OpenDownloadsFolder_Click(this, new System.Windows.RoutedEventArgs()));
+
+        var deleteAllDownloads = new System.Windows.Forms.ToolStripMenuItem("Delete all downloads")
+        {
+            ForeColor = System.Drawing.Color.FromArgb(220, 255, 84, 112),
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        deleteAllDownloads.Click += (_, _) => Dispatcher.Invoke(ConfirmDeleteAllDownloads);
 
         var exit = new System.Windows.Forms.ToolStripMenuItem("Exit")
         {
@@ -702,10 +896,103 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         menu.Items.Add(startWithWindows);
         menu.Items.Add(_playSoundMenuItem);
         menu.Items.Add(_deleteToRecycleBinMenuItem);
+        menu.Items.Add(openDownloads);
         menu.Items.Add(openLog);
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(deleteAllDownloads);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(exit);
         return menu;
+    }
+
+    private async void ConfirmDeleteAllDownloads()
+    {
+        var warning = _deleteToRecycleBin
+            ? "This will delete all downloaded files, not only the files visible in the app. Files will be sent to the Recycle Bin."
+            : "This will permanently delete all downloaded files, not only the files visible in the app. Recycle Bin is OFF and these files cannot be restored by the app.";
+        var dialog = new ConfirmationDialog(warning) { Owner = this };
+        if (dialog.ShowDialog() is not true)
+        {
+            ActivityLog.WriteInteraction("delete-all", _downloadsPath, 0, "cancelled");
+            return;
+        }
+
+        string[] files;
+        try
+        {
+            files = System.IO.Directory.GetFiles(_downloadsPath, "*", System.IO.SearchOption.TopDirectoryOnly);
+        }
+        catch (System.Exception ex)
+        {
+            ActivityLog.WriteInteraction("delete-all", _downloadsPath, 0, $"enumeration-failed:{FormatError(ex)}");
+            new NoticeDialog("Could not read the Downloads folder. It may be unavailable or access may have changed.") { Owner = this }.ShowDialog();
+            return;
+        }
+
+        var recycle = _deleteToRecycleBin;
+        foreach (var entry in _downloads.Where(entry => files.Contains(entry.FullPath, System.StringComparer.OrdinalIgnoreCase)))
+        {
+            entry.DeleteRequested = true;
+            entry.DeletionLogged = true;
+            entry.TouchedAt = System.DateTime.Now;
+        }
+
+        ActivityLog.WriteInteraction(
+            "delete-all",
+            _downloadsPath,
+            0,
+            $"{(recycle ? "confirmed-recycle-bin" : "confirmed-permanent")};count={files.LongLength}");
+        var failedPaths = await System.Threading.Tasks.Task.Run(() => DeleteAllDownloads(files, recycle));
+        foreach (var entry in _downloads.Where(entry => failedPaths.Contains(entry.FullPath, System.StringComparer.OrdinalIgnoreCase)))
+        {
+            entry.DeleteRequested = false;
+            entry.DeletionLogged = false;
+        }
+
+        if (failedPaths.Count > 0)
+        {
+            var suffix = failedPaths.Count == 1 ? "file" : "files";
+            new NoticeDialog($"Could not delete {failedPaths.Count} {suffix}. They may have been moved, renamed, locked, or access may have changed. Details were written to the activity log.")
+            {
+                Owner = this
+            }.ShowDialog();
+        }
+    }
+
+    private static System.Collections.Generic.List<string> DeleteAllDownloads(
+        System.Collections.Generic.IEnumerable<string> files,
+        bool recycle)
+    {
+        var failedPaths = new System.Collections.Generic.List<string>();
+        foreach (var filePath in files)
+        {
+            var fileName = System.IO.Path.GetFileName(filePath);
+            var fileSize = GetFileSize(filePath, 0);
+            try
+            {
+                if (recycle)
+                {
+                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+                        filePath,
+                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin,
+                        Microsoft.VisualBasic.FileIO.UICancelOption.ThrowException);
+                }
+                else
+                {
+                    System.IO.File.Delete(filePath);
+                }
+
+                ActivityLog.WriteDeletion(recycle ? "app-delete-all-recycle-bin" : "app-delete-all-permanent", fileName, fileSize);
+            }
+            catch (System.Exception ex)
+            {
+                failedPaths.Add(filePath);
+                ActivityLog.WriteInteraction("delete-all-file", fileName, fileSize, $"failed:{FormatError(ex)}");
+            }
+        }
+
+        return failedPaths;
     }
 
     private static string GetDisplayVersion()
@@ -900,6 +1187,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             return;
         }
 
+        if (_appRenameTargets.TryRemove(e.FullPath, out _))
+        {
+            return;
+        }
+
         AddDownload(e.FullPath);
     }
 
@@ -1033,11 +1325,14 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             var existing = _downloads.FirstOrDefault(x => string.Equals(x.FullPath, fullPath, System.StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
             {
+                var arrivalTime = System.DateTime.Now;
                 var existsNow = System.IO.File.Exists(fullPath);
                 existing.ExistsNow = existsNow;
-                existing.TouchedAt = System.DateTime.Now;
+                existing.CreatedAt = arrivalTime;
+                existing.TouchedAt = arrivalTime;
                 existing.FileSizeBytes = GetFileSize(fullPath, existing.FileSizeBytes);
                 existing.IsFresh = true;
+                PinFreshDownload(existing, arrivalTime);
                 existing.DeleteRequested = false;
                 existing.DeletionLogged = !existsNow;
                 existing.IsRemovalRecent = !existsNow;
@@ -1053,14 +1348,13 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
             foreach (var entry in _downloads)
             {
-                entry.IsFresh = false;
                 entry.IsNewest = false;
             }
 
             var now = System.DateTime.Now;
             var fileSizeBytes = GetFileSize(fullPath, 0);
             var fileExistsNow = System.IO.File.Exists(fullPath);
-            _downloads.Insert(0, new DownloadEntry
+            var download = new DownloadEntry
             {
                 FileName = fileName,
                 FullPath = fullPath,
@@ -1071,7 +1365,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 IsNewest = true,
                 ExistsNow = fileExistsNow,
                 DeletionLogged = !fileExistsNow
-            });
+            };
+            PinFreshDownload(download, now);
+            _downloads.Insert(0, download);
 
             ActivityLog.WriteDownload(fileName, fileSizeBytes);
             if (!fileExistsNow)
@@ -1117,7 +1413,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         var viewNeedsRefresh = false;
         foreach (var entry in _downloads)
         {
-            entry.IsFresh = (now - entry.TouchedAt).TotalSeconds < 8;
+            entry.IsFresh = (now - entry.TouchedAt).TotalSeconds < FreshDownloadSeconds;
+            if (entry.SortPinOrder > 0 && now >= entry.SortPinnedUntil)
+            {
+                entry.SortPinOrder = 0;
+            }
             var existsNow = System.IO.File.Exists(entry.FullPath);
             if (existsNow)
             {
@@ -1169,6 +1469,81 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _downloadsView.Refresh();
         UpdateEmptyState();
         OnPropertyChanged(nameof(DownloadsView));
+    }
+
+    private void ApplySort()
+    {
+        using (_downloadsView.DeferRefresh())
+        {
+            _downloadsView.SortDescriptions.Clear();
+            _downloadsView.SortDescriptions.Add(new System.ComponentModel.SortDescription(
+                nameof(DownloadEntry.SortPinOrder),
+                System.ComponentModel.ListSortDirection.Descending));
+            var direction = _sortDescending
+                ? System.ComponentModel.ListSortDirection.Descending
+                : System.ComponentModel.ListSortDirection.Ascending;
+            var propertyName = _sortMode switch
+            {
+                DownloadSortMode.Date => nameof(DownloadEntry.CreatedAt),
+                DownloadSortMode.Size => nameof(DownloadEntry.FileSizeBytes),
+                DownloadSortMode.Name => nameof(DownloadEntry.FileName),
+                _ => nameof(DownloadEntry.CreatedAt)
+            };
+            _downloadsView.SortDescriptions.Add(new System.ComponentModel.SortDescription(propertyName, direction));
+            if (_sortMode is not DownloadSortMode.Date)
+            {
+                _downloadsView.SortDescriptions.Add(new System.ComponentModel.SortDescription(
+                    nameof(DownloadEntry.CreatedAt),
+                    System.ComponentModel.ListSortDirection.Descending));
+            }
+        }
+
+        if (_downloadsView is System.ComponentModel.ICollectionViewLiveShaping liveShaping)
+        {
+            liveShaping.LiveSortingProperties.Clear();
+            liveShaping.LiveSortingProperties.Add(nameof(DownloadEntry.SortPinOrder));
+            liveShaping.LiveSortingProperties.Add(_sortMode switch
+            {
+                DownloadSortMode.Date => nameof(DownloadEntry.CreatedAt),
+                DownloadSortMode.Size => nameof(DownloadEntry.FileSizeBytes),
+                DownloadSortMode.Name => nameof(DownloadEntry.FileName),
+                _ => nameof(DownloadEntry.CreatedAt)
+            });
+            liveShaping.IsLiveSorting = true;
+        }
+
+        UpdateSortIndicators();
+    }
+
+    private void PinFreshDownload(DownloadEntry entry, System.DateTime arrivedAt)
+    {
+        entry.SortPinOrder = ++_nextSortPinOrder;
+        entry.SortPinnedUntil = arrivedAt.AddSeconds(FreshDownloadSeconds);
+    }
+
+    private void UpdateSortIndicators()
+    {
+        UpdateSortIndicator(DateSortButton, DateSortDirection, DownloadSortMode.Date);
+        UpdateSortIndicator(SizeSortButton, SizeSortDirection, DownloadSortMode.Size);
+        UpdateSortIndicator(NameSortButton, NameSortDirection, DownloadSortMode.Name);
+    }
+
+    private void UpdateSortIndicator(
+        System.Windows.Controls.Button button,
+        System.Windows.Shapes.Path directionPath,
+        DownloadSortMode mode)
+    {
+        var isActive = _sortMode == mode;
+        button.Background = isActive
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x58, 0x17, 0x4A, 0x28))
+            : System.Windows.Media.Brushes.Transparent;
+        button.BorderBrush = isActive
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0xC0, 0x5C, 0xD7, 0x7A))
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x35, 0x3B, 0x80, 0x4B));
+        directionPath.Data = System.Windows.Media.Geometry.Parse(isActive
+            ? _sortDescending ? "M2,3 L5,7 L8,3" : "M2,7 L5,3 L8,7"
+            : "M2,5 H8");
+        directionPath.Opacity = isActive ? 1 : 0.22;
     }
 
     private void LogExternalDeletion(string fullPath)
@@ -1336,11 +1711,17 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         }
     }
 
-    private void SaveCurrentSettings() => SaveSettings(new AppSettings
+    private void SaveCurrentSettings(string setting, string value)
     {
-        IsMuted = _isMuted,
-        DeleteToRecycleBin = _deleteToRecycleBin
-    });
+        SaveSettings(new AppSettings
+        {
+            IsMuted = _isMuted,
+            DeleteToRecycleBin = _deleteToRecycleBin,
+            SortMode = _sortMode,
+            SortDescending = _sortDescending
+        });
+        ActivityLog.WriteSettingChange(setting, value);
+    }
 
     private void UpdateMuteIcon()
     {

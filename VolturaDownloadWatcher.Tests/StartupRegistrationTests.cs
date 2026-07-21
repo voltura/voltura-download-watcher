@@ -17,5 +17,7 @@ public sealed class StartupRegistrationTests
 
         Assert.True(settings.IsMuted);
         Assert.True(settings.DeleteToRecycleBin);
+        Assert.Equal(DownloadSortMode.Date, settings.SortMode);
+        Assert.True(settings.SortDescending);
     }
 }

@@ -7,9 +7,10 @@
         xmlns:local="clr-namespace:VolturaDownloadWatcher"
         mc:Ignorable="d"
         Title="Voltura Download Watcher"
+        Icon="Assets/voltura-download-watcher.ico"
         Width="240"
         Height="340"
-        MinWidth="174"
+        MinWidth="198"
         MinHeight="130"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -102,6 +103,13 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ContextMenu">
@@ -215,7 +223,28 @@
                             </Style.Triggers>
                         </Style>
                     </StackPanel.Style>
+                    <Button x:Name="SortButton"
+                            Click="ToggleSortMenu_Click"
+                            Padding="0"
+                            Width="16"
+                            Height="16"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Sort downloads">
+                        <Path Data="M2,4 H14 L10,8 V13 L6,15 V8 Z"
+                              Stroke="#7CFF9A"
+                              StrokeThickness="1.05"
+                              Fill="Transparent"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
+                              Stretch="Uniform"
+                              Width="16"
+                              Height="16" />
+                    </Button>
                     <Button Click="OpenDownloadsFolder_Click"
+                            Margin="8,0,0,0"
                             Padding="0"
                             Width="16"
                             Height="16"
@@ -286,6 +315,112 @@
                               Height="16" />
                     </Button>
                 </StackPanel>
+
+                <Popup x:Name="SortPopup"
+                       Grid.Column="1"
+                       PlacementTarget="{Binding ElementName=SortButton}"
+                       Placement="Bottom"
+                       HorizontalOffset="-8"
+                       VerticalOffset="5"
+                       AllowsTransparency="True"
+                       StaysOpen="True"
+                       PopupAnimation="None">
+                    <Border Background="#F507100A"
+                            BorderBrush="#8047C86D"
+                            BorderThickness="1"
+                            CornerRadius="7"
+                            Padding="3">
+                        <StackPanel>
+                            <Button x:Name="DateSortButton"
+                                    Tag="Date"
+                                    Click="SortOption_Click"
+                                    Width="32"
+                                    Height="25"
+                                    Padding="3"
+                                    Background="Transparent"
+                                    BorderThickness="1"
+                                    Cursor="Hand"
+                                    ToolTip="Sort by date">
+                                <Grid>
+                                    <Path Data="M5,3 A5,5 0 1 1 4.9,3 M8,5 V8 L10,9"
+                                          Stroke="#67C87B"
+                                          StrokeThickness="1.1"
+                                          Fill="Transparent"
+                                          Width="14"
+                                          Height="14"
+                                          HorizontalAlignment="Left"
+                                          Stretch="Uniform" />
+                                    <Path x:Name="DateSortDirection"
+                                          Stroke="#7CFF9A"
+                                          StrokeThickness="1.1"
+                                          Fill="Transparent"
+                                          Width="9"
+                                          Height="9"
+                                          HorizontalAlignment="Right"
+                                          Stretch="Uniform" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="SizeSortButton"
+                                    Tag="Size"
+                                    Click="SortOption_Click"
+                                    Width="32"
+                                    Height="25"
+                                    Margin="0,2,0,0"
+                                    Padding="3"
+                                    Background="Transparent"
+                                    BorderThickness="1"
+                                    Cursor="Hand"
+                                    ToolTip="Sort by size">
+                                <Grid>
+                                    <Path Data="M3,12 H6 V14 H3 Z M3,8 H9 V10 H3 Z M3,4 H12 V6 H3 Z"
+                                          Fill="#67C87B"
+                                          Width="14"
+                                          Height="14"
+                                          HorizontalAlignment="Left"
+                                          Stretch="Uniform" />
+                                    <Path x:Name="SizeSortDirection"
+                                          Stroke="#7CFF9A"
+                                          StrokeThickness="1.1"
+                                          Fill="Transparent"
+                                          Width="9"
+                                          Height="9"
+                                          HorizontalAlignment="Right"
+                                          Stretch="Uniform" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="NameSortButton"
+                                    Tag="Name"
+                                    Click="SortOption_Click"
+                                    Width="32"
+                                    Height="25"
+                                    Margin="0,2,0,0"
+                                    Padding="3"
+                                    Background="Transparent"
+                                    BorderThickness="1"
+                                    Cursor="Hand"
+                                    ToolTip="Sort by name">
+                                <Grid>
+                                    <Path Data="M3,13 L6.5,3 L10,13 M4.2,9 H8.8 M11,4 H14 M11,7 H13 M11,10 H12"
+                                          Stroke="#67C87B"
+                                          StrokeThickness="1.05"
+                                          Fill="Transparent"
+                                          Width="14"
+                                          Height="14"
+                                          HorizontalAlignment="Left"
+                                          Stretch="Uniform" />
+                                    <Path x:Name="NameSortDirection"
+                                          Stroke="#7CFF9A"
+                                          StrokeThickness="1.1"
+                                          Fill="Transparent"
+                                          Width="9"
+                                          Height="9"
+                                          HorizontalAlignment="Right"
+                                          Stretch="Uniform" />
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </Popup>
             </Grid>
 
             <Border Grid.Row="1"
@@ -487,8 +622,47 @@
                                         MouseLeave="Filename_MouseLeave"
                                         PreviewMouseLeftButtonUp="OpenRow_Click">
                                     <Border.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Click="DeleteFile_Click">
+                                        <ContextMenu DataContext="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Click="CopyFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Copy file">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M6,3 H15 V12 H6 Z M3,6 H5 V14 H12 V13"
+                                                          Stroke="#7CFF9A"
+                                                          StrokeThickness="1.3"
+                                                          Fill="Transparent"
+                                                          StrokeLineJoin="Round"
+                                                          Stretch="Uniform"
+                                                          Width="18"
+                                                          Height="18" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem Click="CutFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Cut file">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M4,4 A2,2 0 1 0 4,8 A2,2 0 1 0 4,4 M4,10 A2,2 0 1 0 4,14 A2,2 0 1 0 4,10 M6,7 L14,13 M6,11 L14,5"
+                                                          Stroke="#7CFF9A"
+                                                          StrokeThickness="1.25"
+                                                          Fill="Transparent"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          Stretch="Uniform"
+                                                          Width="18"
+                                                          Height="18" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem Click="RenameFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Rename file">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M4,13 L5,9 L12,2 L15,5 L8,12 Z M10.5,3.5 L13.5,6.5 M3,15 H15"
+                                                          Stroke="#7CFF9A"
+                                                          StrokeThickness="1.3"
+                                                          Fill="Transparent"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          StrokeLineJoin="Round"
+                                                          Stretch="Uniform"
+                                                          Width="18"
+                                                          Height="18" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem Click="DeleteFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Delete file">
                                                 <MenuItem.Icon>
                                                     <Path Data="M4,5 H14 M6,5 V3 H12 V5 M5,6 L6,14 H12 L13,6 M8,8 V12 M10,8 V12"
                                                           Stroke="#7CFF9A"
