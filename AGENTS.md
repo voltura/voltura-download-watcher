@@ -90,6 +90,7 @@
 - `scripts/package-win.ps1` regenerates icon and installer artwork, then creates both the small framework-dependent installer and full self-contained installer under `artifacts/publish`.
 - The small installer downloads the signed .NET 10 Windows Desktop runtime from Microsoft only when missing. The full installer is offline/self-contained.
 - Version is sourced from `<Version>` in `VolturaDownloadWatcher.csproj`. `scripts/bump-release.ps1` uses the Voltura Air odometer convention and the GitHub release workflow creates a draft release for manual release-note editing and publication.
+- Release comparison reads the previous `.csproj` through `git show`; strip a leading `0xFEFF` BOM before casting that content to XML.
 - GitHub Pages is built from the root `README.md` by `.github/workflows/pages.yml`. Do not create a second copy of site content; the workflow creates a temporary Jekyll `index.md` during CI.
 - `assets/branding/voltura-download-watcher-master.png` is the replaceable source for the README mark, application/form/installer ICO, and NSIS bitmap artwork. Keep it at least 256x256 with transparency and run `scripts/generate-branding.ps1` after replacement.
 
