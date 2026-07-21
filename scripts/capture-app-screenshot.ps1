@@ -72,7 +72,7 @@ else {
 }
 
 $projectPath = Join-Path $repoRoot "VolturaDownloadWatcher\VolturaDownloadWatcher.csproj"
-$executablePath = Join-Path $repoRoot "VolturaDownloadWatcher\bin\Release\net10.0-windows\VolturaDownloadWatcher.exe"
+$executablePath = Join-Path $repoRoot "VolturaDownloadWatcher\bin\Release\net10.0-windows\Voltura Download Watcher.exe"
 if (-not $SkipBuild) {
     & dotnet build $projectPath --configuration Release
     if ($LASTEXITCODE -ne 0) {
@@ -83,7 +83,7 @@ if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
     throw "Application executable was not found: $executablePath"
 }
 
-$existing = @(Get-Process -Name VolturaDownloadWatcher -ErrorAction SilentlyContinue)
+$existing = @(Get-Process -Name "Voltura Download Watcher", "VolturaDownloadWatcher" -ErrorAction SilentlyContinue)
 if ($existing.Count -gt 0) {
     throw "Close Voltura Download Watcher before capturing its deterministic black-backed screenshot."
 }

@@ -19,7 +19,7 @@
 !endif
 
 !define APP_NAME "Voltura Download Watcher"
-!define EXE_NAME "VolturaDownloadWatcher.exe"
+!define EXE_NAME "Voltura Download Watcher.exe"
 !define PUBLISHER "Voltura AB"
 !define DEVELOPER "Joakim Skoglund"
 !define PRODUCT_URL "https://github.com/voltura/voltura-download-watcher"
@@ -94,6 +94,9 @@ FunctionEnd
 Section "Install"
   Call PromptCloseRunningApp
 
+  ; Preserve an existing opt-in while migrating from the legacy executable name.
+  ReadRegStr $R0 HKCU "${RUN_KEY}" "${RUN_VALUE}"
+
   !ifdef FRAMEWORK_DEPENDENT
   InitPluginsDir
   File /oname=$PLUGINSDIR\Install-FrameworkRuntime.ps1 "${__FILEDIR__}\Install-FrameworkRuntime.ps1"
@@ -115,6 +118,10 @@ Section "Install"
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" "$INSTDIR\Uninstall.exe"
+
+  ${If} $R0 != ""
+    WriteRegStr HKCU "${RUN_KEY}" "${RUN_VALUE}" "$\"$INSTDIR\${EXE_NAME}$\""
+  ${EndIf}
 
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
@@ -144,7 +151,7 @@ Section "Uninstall"
 SectionEnd
 
 Function PromptCloseRunningApp
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "if (Get-Process -Name VolturaDownloadWatcher -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "if (Get-Process -Name $\'Voltura Download Watcher$\',$\'VolturaDownloadWatcher$\' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -153,7 +160,7 @@ Function PromptCloseRunningApp
 
   MessageBox MB_ICONEXCLAMATION|MB_OKCANCEL "${APP_NAME} is running. Setup needs to close it before continuing." IDOK install_close IDCANCEL install_cancel
 install_close:
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name VolturaDownloadWatcher -Force -ErrorAction SilentlyContinue"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name $\'Voltura Download Watcher$\',$\'VolturaDownloadWatcher$\' -Force -ErrorAction SilentlyContinue"'
   Sleep 800
   Return
 install_cancel:
@@ -161,7 +168,7 @@ install_cancel:
 FunctionEnd
 
 Function un.PromptCloseRunningApp
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "if (Get-Process -Name VolturaDownloadWatcher -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "if (Get-Process -Name $\'Voltura Download Watcher$\',$\'VolturaDownloadWatcher$\' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -170,7 +177,7 @@ Function un.PromptCloseRunningApp
 
   MessageBox MB_ICONEXCLAMATION|MB_OKCANCEL "${APP_NAME} is running. Uninstall needs to close it before continuing." IDOK uninstall_close IDCANCEL uninstall_cancel
 uninstall_close:
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name VolturaDownloadWatcher -Force -ErrorAction SilentlyContinue"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Name $\'Voltura Download Watcher$\',$\'VolturaDownloadWatcher$\' -Force -ErrorAction SilentlyContinue"'
   Sleep 800
   Return
 uninstall_cancel:

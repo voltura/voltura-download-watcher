@@ -6,8 +6,8 @@ public sealed class StartupRegistrationTests
     public void FormatRunCommand_QuotesExecutablePath()
     {
         Assert.Equal(
-            "\"C:\\Program Files\\Voltura Download Watcher\\VolturaDownloadWatcher.exe\"",
-            StartupRegistration.FormatRunCommand(@"C:\Program Files\Voltura Download Watcher\VolturaDownloadWatcher.exe"));
+            "\"C:\\Program Files\\Voltura Download Watcher\\Voltura Download Watcher.exe\"",
+            StartupRegistration.FormatRunCommand(@"C:\Program Files\Voltura Download Watcher\Voltura Download Watcher.exe"));
     }
 
     [Fact]

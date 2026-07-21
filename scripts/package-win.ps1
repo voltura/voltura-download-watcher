@@ -74,7 +74,7 @@ if (-not $SkipBuild) {
 }
 
 foreach ($directory in @($fullPublishDir, $smallPublishDir)) {
-    $publishedExecutable = Join-Path $directory "VolturaDownloadWatcher.exe"
+    $publishedExecutable = Join-Path $directory "Voltura Download Watcher.exe"
     if (-not (Test-Path -LiteralPath $publishedExecutable -PathType Leaf)) {
         throw "Expected published executable was not found: $publishedExecutable"
     }

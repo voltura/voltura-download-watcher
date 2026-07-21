@@ -7,27 +7,21 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$masterPath = Join-Path $repoRoot "assets\branding\voltura-download-watcher-master.png"
 $trayMasterPath = Join-Path $repoRoot "assets\branding\voltura-download-watcher-tray-master.png"
 $outputPath = Join-Path $repoRoot "VolturaDownloadWatcher\Assets\voltura-download-watcher.ico"
 $sizes = @(16, 24, 32, 48, 256)
 
-if (-not (Test-Path -LiteralPath $masterPath -PathType Leaf))
-{
-    throw "Branding master was not found: $masterPath"
-}
 if (-not (Test-Path -LiteralPath $trayMasterPath -PathType Leaf))
 {
     throw "Tray branding master was not found: $trayMasterPath"
 }
 
-$master = [System.Drawing.Bitmap]::new($masterPath)
 $trayMaster = [System.Drawing.Bitmap]::new($trayMasterPath)
 try
 {
-    if ($master.Width -lt 256 -or $master.Height -lt 256)
+    if ($trayMaster.Width -lt 256 -or $trayMaster.Height -lt 256)
     {
-        throw "Branding master must be at least 256x256; received $($master.Width)x$($master.Height)."
+        throw "Tray branding master must be at least 256x256; received $($trayMaster.Width)x$($trayMaster.Height)."
     }
 
     $images = [System.Collections.Generic.List[byte[]]]::new()
@@ -46,8 +40,7 @@ try
                 $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
                 $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
 
-                $source = $(if ($size -le 48) { $trayMaster } else { $master })
-                $graphics.DrawImage($source, 0, 0, $size, $size)
+                $graphics.DrawImage($trayMaster, 0, 0, $size, $size)
             }
             finally
             {
@@ -113,8 +106,7 @@ try
 }
 finally
 {
-    $master.Dispose()
     $trayMaster.Dispose()
 }
 
-Write-Host "Created icon from branding master: $outputPath"
+Write-Host "Created icon from neon tray master: $outputPath"
