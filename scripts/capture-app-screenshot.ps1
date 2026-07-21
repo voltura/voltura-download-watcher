@@ -14,6 +14,8 @@ using System.Runtime.InteropServices;
 
 public static class ScreenshotNativeMethods
 {
+    public delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
+
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 
@@ -31,6 +33,33 @@ public static class ScreenshotNativeMethods
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsCallback callback, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr window);
+
+    public static IntPtr FindVisibleTopLevelWindow(uint processId)
+    {
+        IntPtr result = IntPtr.Zero;
+        EnumWindows((window, parameter) =>
+        {
+            uint ownerProcessId;
+            GetWindowThreadProcessId(window, out ownerProcessId);
+            if (ownerProcessId == processId && IsWindowVisible(window))
+            {
+                result = window;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
 }
 "@
 
@@ -73,8 +102,8 @@ try {
         if ($process.HasExited) {
             throw "The watcher exited before its screenshot could be captured."
         }
-        if ($process.MainWindowHandle -ne [System.IntPtr]::Zero) {
-            $windowHandle = $process.MainWindowHandle
+        $windowHandle = [ScreenshotNativeMethods]::FindVisibleTopLevelWindow([uint32]$process.Id)
+        if ($windowHandle -ne [System.IntPtr]::Zero) {
             break
         }
     }
@@ -142,7 +171,7 @@ finally {
     if ($null -ne $process -and -not $process.HasExited) {
         $process.CloseMainWindow() | Out-Null
         if (-not $process.WaitForExit(2000)) {
-            $process.Kill($true)
+            $process.Kill()
             $process.WaitForExit()
         }
     }

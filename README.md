@@ -16,12 +16,14 @@ Safe Recycle Bin deletion, direct-delete opt-out, optional sound/startup behavio
 - Shows the latest 40 downloads with compact timestamps and adaptive file sizes, and marks removed files without launching dead paths.
 - Provides a compact icon flyout for persistent date, size, or filename sorting with reversible direction.
 - Detects browser staging activity without listing temporary `.crdownload`, `.part`, `.partial`, or `.download` files.
-- Single-click shell opening plus icon-only copy, cut, safe in-folder rename, and themed file deletion actions.
-- Recycle Bin deletion by default, with a direct-delete opt-out and a daily activity text log for downloads, file actions, setting changes, and removals.
+- Single-click shell opening plus icon-only copy, copy-as-path, cut, safe in-folder rename, SHA-256 copy, and themed file deletion actions.
+- Calculates SHA-256 automatically through a serialized background queue after each live file becomes stable. Large files never block the UI; the hash action remains disabled with a themed calculating tooltip until ready and is never enabled for deleted files.
+- Recycle Bin deletion by default, with a direct-delete opt-out and a daily activity text log for downloads, calculated hashes, file actions, setting changes, and removals.
 - Tray actions open Downloads or explicitly delete every top-level file in Downloads, with a themed warning that reflects Recycle Bin versus permanent deletion.
 - File-operation races fail gracefully with a themed dismiss-only notice, while timestamped diagnostic details are queued to the log off the UI thread.
 - Closing the taskbar window hides it to the notification area, explains that behavior once, and keeps monitoring until the tray Exit command is used.
 - The notification-area icon pulses during browser download staging; its tooltip updates immediately for progress and briefly consolidates completed download bursts.
+- A quiet daily GitHub release check can be disabled under `About`; available updates add a small yellow tray/menu marker without automatic installation.
 - Single-instance activation brings the existing watcher forward instead of opening another panel.
 
 ## Develop

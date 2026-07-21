@@ -14,7 +14,7 @@ public partial class App : System.Windows.Application
     private System.Threading.RegisteredWaitHandle? _showExistingRegistration;
     private bool _ownsSingleInstanceMutex;
 
-    private void Application_Startup(object sender, System.Windows.StartupEventArgs e)
+    private async void Application_Startup(object sender, System.Windows.StartupEventArgs e)
     {
         if (!TryBecomeSingleInstance())
         {
@@ -32,13 +32,32 @@ public partial class App : System.Windows.Application
 
         try
         {
+            ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown;
+            SplashWindow? splash = null;
+            System.Threading.Tasks.Task? splashDelay = null;
+            if (!string.Equals(
+                    System.Environment.GetEnvironmentVariable("VOLTURA_DOWNLOAD_WATCHER_SCREENSHOT"),
+                    "1",
+                    System.StringComparison.Ordinal))
+            {
+                splash = new SplashWindow();
+                splash.Show();
+                splashDelay = System.Threading.Tasks.Task.Delay(System.TimeSpan.FromSeconds(2));
+            }
+
             _mainWindow = new MainWindow();
+            if (splash is not null && splashDelay is not null)
+            {
+                await splashDelay;
+                splash.Close();
+            }
+
             MainWindow = _mainWindow;
             ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose;
             ListenForShowRequests();
             _mainWindow.Loaded += (_, _) =>
             {
-                _mainWindow.ShowInTaskbar = true;
+                _mainWindow.ShowInTaskbar = false;
                 _mainWindow.WindowState = System.Windows.WindowState.Normal;
                 _mainWindow.Show();
                 _mainWindow.Activate();
@@ -47,9 +66,9 @@ public partial class App : System.Windows.Application
             _mainWindow.Show();
             _mainWindow.WindowState = System.Windows.WindowState.Normal;
             _mainWindow.Activate();
-            _mainWindow.Dispatcher.BeginInvoke(new System.Action(() =>
+            _ = _mainWindow.Dispatcher.BeginInvoke(new System.Action(() =>
             {
-                _mainWindow.ShowInTaskbar = true;
+                _mainWindow.ShowInTaskbar = false;
                 _mainWindow.WindowState = System.Windows.WindowState.Normal;
                 _mainWindow.Show();
                 _mainWindow.Activate();

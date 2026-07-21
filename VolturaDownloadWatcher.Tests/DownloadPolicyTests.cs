@@ -38,18 +38,16 @@ public sealed class DownloadPolicyTests
     }
 
     [Fact]
-    public void ExternalDeletion_UsesSixtySecondLifetimeAndFinalWarning()
+    public void ExternalDeletion_AnimatesForFourSeconds()
     {
-        Assert.Equal(60, DownloadPolicy.GetRemovalLifetimeSeconds(deleteRequested: false));
         Assert.True(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: false, removedForSeconds: 0));
         Assert.False(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: false, removedForSeconds: 4));
-        Assert.True(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: false, removedForSeconds: 56));
+        Assert.False(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: false, removedForSeconds: 56));
     }
 
     [Fact]
-    public void UiDeletion_UsesFourSecondLifetimeWithoutLateWarning()
+    public void UiDeletion_AnimatesForFourSeconds()
     {
-        Assert.Equal(1.5, DownloadPolicy.GetRemovalLifetimeSeconds(deleteRequested: true));
         Assert.True(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: true, removedForSeconds: 0));
         Assert.False(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: true, removedForSeconds: 4));
         Assert.False(DownloadPolicy.IsRemovalAnimationActive(deleteRequested: true, removedForSeconds: 56));

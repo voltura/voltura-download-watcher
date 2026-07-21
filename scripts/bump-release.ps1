@@ -33,6 +33,3 @@ else {
 $nextVersion = "$major.$minor.$patch"
 Write-Host "Bumping Voltura Download Watcher from $currentVersion to $nextVersion."
 & (Join-Path $PSScriptRoot "prepare-release.ps1") $nextVersion
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}

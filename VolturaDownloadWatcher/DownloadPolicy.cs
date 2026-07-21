@@ -27,8 +27,6 @@ internal static class DownloadPolicy
             && !fileName.StartsWith("Unconfirmed ", System.StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static double GetRemovalLifetimeSeconds(bool deleteRequested) => deleteRequested ? 1.5 : 60;
-
     internal static bool IsRemovalAnimationActive(bool deleteRequested, double removedForSeconds) =>
-        removedForSeconds < 4 || (!deleteRequested && removedForSeconds >= 56);
+        removedForSeconds < 4;
 }

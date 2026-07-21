@@ -16,6 +16,8 @@ public sealed class DownloadEntry : INotifyPropertyChanged
     private bool _isNewest;
     private long _fileSizeBytes;
     private long _sortPinOrder;
+    private string? _sha256;
+    private Sha256State _sha256State;
     private DateTime _createdAt;
     private DateTime _touchedAt = DateTime.Now;
 
@@ -67,7 +69,6 @@ public sealed class DownloadEntry : INotifyPropertyChanged
     }
 
     public bool DeletionLogged { get; set; }
-
     public bool IsNewest
     {
         get => _isNewest;
@@ -88,13 +89,41 @@ public sealed class DownloadEntry : INotifyPropertyChanged
 
     public System.DateTime SortPinnedUntil { get; set; }
 
+    public string? Sha256
+    {
+        get => _sha256;
+        set => SetField(ref _sha256, value);
+    }
+
+    public Sha256State Sha256State
+    {
+        get => _sha256State;
+        set => SetField(ref _sha256State, value);
+    }
+
+    public bool IsSha256Available => ExistsNow
+        && Sha256State is Sha256State.Available
+        && !string.IsNullOrWhiteSpace(Sha256);
+    public string Sha256ActionToolTip => !ExistsNow
+        ? "SHA-256 unavailable for deleted file"
+        : IsSha256Available
+            ? "Copy SHA-256"
+            : Sha256State is Sha256State.Unavailable
+                ? "SHA-256 unavailable"
+                : "Calculating SHA-256...";
+
     public string DownloadedAtText => CreatedAt.ToString("MMdd HH:mm:ss", CultureInfo.InvariantCulture);
     public string FileSizeText => FormatFileSize(FileSizeBytes);
     public string DownloadedMetaText => $"{DownloadedAtText}  {FileSizeText}";
     public string FileExtension => System.IO.Path.GetExtension(FileName).ToLowerInvariant();
-    public bool IsDocument => FileExtension is ".pdf" or ".doc" or ".docx" or ".txt" or ".rtf" or ".md" or ".odt" or ".xls" or ".xlsx" or ".ppt" or ".pptx";
-    public bool IsArchive => FileExtension is ".zip" or ".rar" or ".7z" or ".tar" or ".gz";
-    public bool IsApplication => FileExtension is ".exe" or ".msi" or ".bat" or ".cmd" or ".ps1";
+    public DownloadFileType FileType => DownloadFileTypeIcon.Classify(FileName);
+    public string FileTypeGlyph => DownloadFileTypeIcon.GetGlyph(FileType);
+    public bool IsDocument => FileType is DownloadFileType.Pdf
+        or DownloadFileType.Document
+        or DownloadFileType.Presentation
+        or DownloadFileType.Spreadsheet;
+    public bool IsArchive => FileType is DownloadFileType.Archive;
+    public bool IsApplication => FileType is DownloadFileType.Executable;
     public MediaBrush DisplayBrush => IsFresh
         ? new SolidColorBrush(WpfColor.FromRgb(0xE4, 0xFF, 0xEA))
         : ExistsNow
@@ -124,6 +153,8 @@ public sealed class DownloadEntry : INotifyPropertyChanged
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayBrush)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RemovalGlyph)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSha256Available)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Sha256ActionToolTip)));
         }
         else if (propertyName is nameof(IsNewest))
         {
@@ -138,6 +169,20 @@ public sealed class DownloadEntry : INotifyPropertyChanged
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadedAtText)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DownloadedMetaText)));
+        }
+        else if (propertyName is nameof(FileName))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileExtension)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileType)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FileTypeGlyph)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsDocument)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsArchive)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsApplication)));
+        }
+        else if (propertyName is nameof(Sha256) or nameof(Sha256State))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSha256Available)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Sha256ActionToolTip)));
         }
     }
 
@@ -162,4 +207,12 @@ public sealed class DownloadEntry : INotifyPropertyChanged
         var format = value < 10 ? "0.#" : "0";
         return $"{value.ToString(format, System.Globalization.CultureInfo.InvariantCulture)} {units[unitIndex]}";
     }
+}
+
+public enum Sha256State
+{
+    Pending,
+    Calculating,
+    Available,
+    Unavailable
 }

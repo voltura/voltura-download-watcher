@@ -10,14 +10,14 @@
         Icon="Assets/voltura-download-watcher.ico"
         Width="240"
         Height="340"
-        MinWidth="198"
+        MinWidth="222"
         MinHeight="130"
         WindowStyle="None"
         ResizeMode="CanResize"
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
-        ShowInTaskbar="True"
+        ShowInTaskbar="False"
         PreviewMouseMove="Window_PreviewMouseMove"
         MouseLeave="Window_MouseLeave"
         Closing="Window_Closing"
@@ -104,6 +104,8 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="UseLayoutRounding" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
             <Setter Property="ItemsPanel">
                 <Setter.Value>
                     <ItemsPanelTemplate>
@@ -125,13 +127,15 @@
         <Style TargetType="MenuItem">
             <Setter Property="OverridesDefaultStyle" Value="True" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="Background" Value="#F20A0F0C" />
-            <Setter Property="Foreground" Value="#7CFF9A" />
-            <Setter Property="BorderBrush" Value="#4BFF7A" />
+            <Setter Property="Background" Value="#FF0A0F0C" />
+            <Setter Property="Foreground" Value="#A8FFB9" />
+            <Setter Property="BorderBrush" Value="#704BFF7A" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="6" />
             <Setter Property="MinWidth" Value="34" />
             <Setter Property="MinHeight" Value="34" />
+            <Setter Property="UseLayoutRounding" Value="True" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
@@ -151,12 +155,30 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="MenuItemShell" Property="Opacity" Value="0.72" />
+                                <Setter TargetName="MenuItemShell" Property="Background" Value="#FF102619" />
+                                <Setter TargetName="MenuItemShell" Property="BorderBrush" Value="#A8FFB9" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="MenuItemShell" Property="Opacity" Value="0.34" />
+                                <Setter TargetName="MenuItemShell" Property="BorderBrush" Value="#403B804B" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+        <Style x:Key="ContextActionIcon" TargetType="Path">
+            <Setter Property="Stroke" Value="#A8FFB9" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="Fill" Value="Transparent" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
         </Style>
         <Style TargetType="Border" x:Key="PanelShell">
             <Setter Property="Opacity" Value="1" />
@@ -300,6 +322,23 @@
                               Width="16"
                               Height="16" />
                     </Button>
+                    <Button x:Name="MonitoringToggleButton"
+                            Click="ToggleMonitoring_Click"
+                            Margin="8,0,0,0"
+                            Padding="0"
+                            Width="16"
+                            Height="16"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Pause monitoring">
+                        <Path x:Name="MonitoringToggleIconPath"
+                              Data="M5,4 H8 V14 H5 Z M10,4 H13 V14 H10 Z"
+                              Fill="#7CFF9A"
+                              Stretch="Uniform"
+                              Width="16"
+                              Height="16" />
+                    </Button>
                     <Button Click="HideToTray_Click"
                             Margin="8,0,0,0"
                             Padding="0"
@@ -309,8 +348,13 @@
                             BorderThickness="0"
                             Cursor="Hand"
                             ToolTip="Hide to tray">
-                        <Path Data="M4,4 H12 V8 H14 V12 H10 V10 H6 V6 H4 Z M2,14 H14 V15 H2 Z"
-                              Fill="#7CFF9A"
+                        <Path Data="M3,3 H13 V9 H3 Z M5.5,5.5 L8,8 L10.5,5.5 M2,13 H14"
+                              Stroke="#7CFF9A"
+                              StrokeThickness="1.35"
+                              Fill="Transparent"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              StrokeLineJoin="Round"
                               Stretch="Uniform"
                               Width="16"
                               Height="16" />
@@ -477,10 +521,14 @@
                             </DrawingBrush.Drawing>
                         </DrawingBrush>
                     </Grid.Background>
-                    <ListView ItemsSource="{Binding DownloadsView}"
+                    <ListView x:Name="DownloadsList"
+                              ItemsSource="{Binding DownloadsView}"
                               Background="Transparent"
                               BorderThickness="0"
                               Cursor="Hand"
+                              PreviewMouseWheel="DownloadsList_PreviewMouseWheel"
+                              ScrollViewer.CanContentScroll="False"
+                              ScrollViewer.PanningMode="VerticalOnly"
                               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                               ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListView.Resources>
@@ -627,61 +675,43 @@
                                             <MenuItem Click="CopyFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Copy file">
                                                 <MenuItem.Icon>
                                                     <Path Data="M6,3 H15 V12 H6 Z M3,6 H5 V14 H12 V13"
-                                                          Stroke="#7CFF9A"
-                                                          StrokeThickness="1.3"
-                                                          Fill="Transparent"
-                                                          StrokeLineJoin="Round"
-                                                          Stretch="Uniform"
-                                                          Width="18"
-                                                          Height="18" />
+                                                          Style="{StaticResource ContextActionIcon}" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem Click="CopyAsPath_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Copy as Path">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M4,3 H12 V5 H14 V15 H6 V13 H4 Z M7,7 H11 M7,10 H11 M2,6 H5 V12 H2 Z"
+                                                          Style="{StaticResource ContextActionIcon}" />
                                                 </MenuItem.Icon>
                                             </MenuItem>
                                             <MenuItem Click="CutFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Cut file">
                                                 <MenuItem.Icon>
                                                     <Path Data="M4,4 A2,2 0 1 0 4,8 A2,2 0 1 0 4,4 M4,10 A2,2 0 1 0 4,14 A2,2 0 1 0 4,10 M6,7 L14,13 M6,11 L14,5"
-                                                          Stroke="#7CFF9A"
-                                                          StrokeThickness="1.25"
-                                                          Fill="Transparent"
-                                                          StrokeStartLineCap="Round"
-                                                          StrokeEndLineCap="Round"
-                                                          Stretch="Uniform"
-                                                          Width="18"
-                                                          Height="18" />
+                                                          Style="{StaticResource ContextActionIcon}" />
                                                 </MenuItem.Icon>
                                             </MenuItem>
                                             <MenuItem Click="RenameFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Rename file">
                                                 <MenuItem.Icon>
                                                     <Path Data="M4,13 L5,9 L12,2 L15,5 L8,12 Z M10.5,3.5 L13.5,6.5 M3,15 H15"
-                                                          Stroke="#7CFF9A"
-                                                          StrokeThickness="1.3"
-                                                          Fill="Transparent"
-                                                          StrokeStartLineCap="Round"
-                                                          StrokeEndLineCap="Round"
-                                                          StrokeLineJoin="Round"
-                                                          Stretch="Uniform"
-                                                          Width="18"
-                                                          Height="18" />
+                                                          Style="{StaticResource ContextActionIcon}" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem Click="CopySha256_Click"
+                                                      Tag="{Binding}"
+                                                      IsEnabled="{Binding IsSha256Available}"
+                                                      ToolTip="{Binding Sha256ActionToolTip}"
+                                                      ToolTipService.ShowOnDisabled="True">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M6,2 L5,15 M11,2 L10,15 M2,7 H14 M2,11 H14"
+                                                          Style="{StaticResource ContextActionIcon}"
+                                                          StrokeThickness="1.65" />
                                                 </MenuItem.Icon>
                                             </MenuItem>
                                             <MenuItem Click="DeleteFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Delete file">
                                                 <MenuItem.Icon>
-                                                    <Path Data="M4,5 H14 M6,5 V3 H12 V5 M5,6 L6,14 H12 L13,6 M8,8 V12 M10,8 V12"
-                                                          Stroke="#7CFF9A"
-                                                          StrokeThickness="1.35"
-                                                          Fill="Transparent"
-                                                          StrokeStartLineCap="Round"
-                                                          StrokeEndLineCap="Round"
-                                                          StrokeLineJoin="Round"
-                                                          Stretch="Uniform"
-                                                          Width="20"
-                                                          Height="20">
-                                                        <Path.Effect>
-                                                            <DropShadowEffect Color="#4BFF7A"
-                                                                              BlurRadius="5"
-                                                                              ShadowDepth="0"
-                                                                              Opacity="0.72" />
-                                                        </Path.Effect>
-                                                    </Path>
+                                                    <Path Data="M3,5 H15 M6,5 V3 H12 V5 M5,7 L6,15 H12 L13,7 M8,8 V13 M10,8 V13"
+                                                          Style="{StaticResource ContextActionIcon}"
+                                                          StrokeThickness="1.8" />
                                                 </MenuItem.Icon>
                                             </MenuItem>
                                         </ContextMenu>
@@ -762,7 +792,22 @@
                                         </Style>
                                         </Border.Style>
                                         <Grid>
-                                        <StackPanel>
+                                        <Path Data="{Binding FileTypeGlyph}"
+                                              Stroke="{Binding DisplayBrush}"
+                                              StrokeThickness="1.15"
+                                              Fill="Transparent"
+                                              StrokeStartLineCap="Round"
+                                              StrokeEndLineCap="Round"
+                                              StrokeLineJoin="Round"
+                                              Stretch="Uniform"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Top"
+                                              Margin="0,1,0,0"
+                                              Width="11"
+                                              Height="11"
+                                              Opacity="0.86"
+                                              IsHitTestVisible="False" />
+                                        <StackPanel Margin="14,0,0,0">
                                             <Border Background="Transparent"
                                                     ClipToBounds="True"
                                                     HorizontalAlignment="Stretch"

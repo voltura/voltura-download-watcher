@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <ApplicationIcon>Assets\voltura-download-watcher.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <AssemblyTitle>Voltura Download Watcher</AssemblyTitle>
     <Product>Voltura Download Watcher</Product>
     <Company>Voltura AB</Company>
@@ -23,6 +23,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\voltura-download-watcher.ico" />
+    <Resource Include="..\docs\assets\voltura-download-watcher-social-preview.png"
+              Link="Assets\voltura-download-watcher-social-preview.png" />
   </ItemGroup>
 
 </Project>

@@ -8,12 +8,18 @@ Add-Type -AssemblyName System.Drawing
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $masterPath = Join-Path $repoRoot "assets\branding\voltura-download-watcher-master.png"
+$screenshotPath = Join-Path $repoRoot "docs\assets\voltura-download-watcher.png"
 $assetDirectory = Join-Path $repoRoot "installer\assets"
 [System.IO.Directory]::CreateDirectory($assetDirectory) | Out-Null
 if (-not (Test-Path -LiteralPath $masterPath -PathType Leaf)) {
     throw "Branding master was not found: $masterPath"
 }
 $master = [System.Drawing.Bitmap]::new($masterPath)
+$screenshot = $(if (Test-Path -LiteralPath $screenshotPath -PathType Leaf) {
+    [System.Drawing.Bitmap]::new($screenshotPath)
+} else {
+    $null
+})
 
 function New-InstallerBitmap {
     param(
@@ -46,10 +52,28 @@ function New-InstallerBitmap {
                     $graphics.DrawImage($master, $Width - 49, 4, 44, 44)
                 }
                 else {
-                    $graphics.DrawImage($master, 32, 28, 100, 100)
-                    $graphics.DrawLine($accentPen, 23, 145, $Width - 23, 145)
-                    $graphics.DrawLine($accentPen, 42, 171, $Width - 42, 171)
-                    $graphics.DrawLine($accentPen, 54, 181, $Width - 54, 181)
+                    if ($null -ne $screenshot) {
+                        $source = [System.Drawing.Rectangle]::new(
+                            36,
+                            36,
+                            $screenshot.Width - 72,
+                            $screenshot.Height - 72)
+                        $destination = [System.Drawing.Rectangle]::new(6, 7, $Width - 12, 214)
+                        $graphics.DrawImage($screenshot, $destination, $source, [System.Drawing.GraphicsUnit]::Pixel)
+                        $shade = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(26, 0, 8, 4))
+                        $frame = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(145, 75, 220, 116), 1)
+                        try {
+                            $graphics.FillRectangle($shade, $destination)
+                            $graphics.DrawRectangle($frame, $destination)
+                        }
+                        finally {
+                            $shade.Dispose()
+                            $frame.Dispose()
+                        }
+                    }
+
+                    $graphics.DrawImage($master, 50, 228, 64, 64)
+                    $graphics.DrawLine($accentPen, 28, 300, $Width - 28, 300)
                 }
             }
             finally {
@@ -75,6 +99,9 @@ try {
 }
 finally {
     $master.Dispose()
+    if ($null -ne $screenshot) {
+        $screenshot.Dispose()
+    }
 }
 
 Write-Host "Created NSIS artwork in: $assetDirectory"

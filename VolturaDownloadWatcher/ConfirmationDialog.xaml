@@ -10,7 +10,7 @@
         Background="Transparent"
         ShowInTaskbar="False"
         Topmost="True"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="Manual"
         FontFamily="Bahnschrift SemiCondensed"
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>

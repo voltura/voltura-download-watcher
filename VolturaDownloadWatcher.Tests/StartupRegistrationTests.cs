@@ -18,7 +18,16 @@ public sealed class StartupRegistrationTests
         Assert.True(settings.IsMuted);
         Assert.True(settings.DeleteToRecycleBin);
         Assert.Equal(DownloadSortMode.Date, settings.SortMode);
+        Assert.Equal(DownloadDefaultAction.OpenFile, settings.DefaultAction);
         Assert.True(settings.SortDescending);
         Assert.False(settings.CloseToTrayNotificationShown);
+    }
+
+    [Fact]
+    public void AppSettings_DefaultsDailyUpdateChecksToOn()
+    {
+        var settings = new AppSettings();
+
+        Assert.True(settings.CheckForUpdatesDaily);
     }
 }

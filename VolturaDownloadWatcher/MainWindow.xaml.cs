@@ -7,6 +7,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private const int TrayCompletionStatusSeconds = 4;
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
+    private const uint SetWindowPosNoZOrder = 0x0004;
     private const uint SetWindowPosNoActivate = 0x0010;
     private static readonly string SettingsPath = System.IO.Path.Combine(
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
@@ -17,6 +18,17 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private readonly System.Collections.ObjectModel.ObservableCollection<FilterChip> _filterButtons = new();
     private readonly System.Collections.Generic.HashSet<string> _activeBrowserDownloads = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _appRenameTargets = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _sha256QueuedPaths = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly System.Threading.Channels.Channel<Sha256WorkItem> _sha256Queue =
+        System.Threading.Channels.Channel.CreateUnbounded<Sha256WorkItem>(
+            new System.Threading.Channels.UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false
+            });
+    private readonly System.Threading.CancellationTokenSource _sha256Cancellation = new();
+    private readonly System.Threading.Tasks.Task _sha256Worker;
     private readonly System.ComponentModel.ICollectionView _downloadsView;
     private readonly string _downloadsPath = GetDownloadsPath();
     private readonly bool _isScreenshotMode = string.Equals(
@@ -25,12 +37,20 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         System.StringComparison.Ordinal);
     private readonly System.Windows.Threading.DispatcherTimer _freshnessTimer;
     private readonly System.Windows.Threading.DispatcherTimer _trayPulseTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _smoothScrollTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _releaseCheckTimer;
     private System.IO.FileSystemWatcher? _watcher;
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
     private System.Drawing.Icon? _trayIcon;
     private System.Drawing.Icon? _trayActiveIcon;
+    private System.Drawing.Icon? _trayPausedIcon;
     private System.Windows.Forms.ToolStripMenuItem? _playSoundMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _deleteToRecycleBinMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _monitoringMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _aboutMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _checkReleaseMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _downloadReleaseMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _dailyUpdateChecksMenuItem;
     private System.Media.SoundPlayer? _sparkPlayer;
     private System.IO.MemoryStream? _sparkStream;
     private bool _isMuted;
@@ -40,6 +60,17 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private bool _deleteToRecycleBin;
     private bool _closeToTrayNotificationShown;
     private bool _allowClose;
+    private bool _monitoringPaused;
+    private bool _releaseCheckInProgress;
+    private bool _updateAvailable;
+    private System.DateTimeOffset? _lastReleaseCheckUtc;
+    private string? _latestReleaseVersion;
+    private string? _latestReleaseUrl;
+    private bool _checkForUpdatesDaily;
+    private DownloadDefaultAction _defaultAction;
+    private System.Windows.Controls.ScrollViewer? _downloadsScrollViewer;
+    private double _smoothScrollTarget;
+    private System.DateTime _lastListScrollAt = System.DateTime.MinValue;
     private int _exitLogged;
     private DownloadSortMode _sortMode;
     private bool _sortDescending;
@@ -50,6 +81,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     public MainWindow()
     {
         InitializeComponent();
+        _sha256Worker = System.Threading.Tasks.Task.Run(ProcessSha256QueueAsync);
         DataContext = this;
         DownloadsPathLabel = _downloadsPath;
 
@@ -68,10 +100,24 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _closeToTrayNotificationShown = settings.CloseToTrayNotificationShown;
         _sortMode = settings.SortMode;
         _sortDescending = settings.SortDescending;
+        _defaultAction = DownloadDefaultActionPolicy.Normalize(settings.DefaultAction);
+        _lastReleaseCheckUtc = settings.LastReleaseCheckUtc;
+        _latestReleaseVersion = settings.LatestReleaseVersion;
+        _latestReleaseUrl = settings.LatestReleaseUrl;
+        _checkForUpdatesDaily = settings.CheckForUpdatesDaily;
+        _updateAvailable = ReleaseUpdateChecker.IsNewer(_latestReleaseVersion, GetDisplayVersion());
         ApplySort();
         UpdateMuteIcon();
         _sparkStream = new System.IO.MemoryStream(CreateSparkWaveBytes());
         _sparkPlayer = new System.Media.SoundPlayer(_sparkStream);
+        try
+        {
+            _sparkPlayer.Load();
+        }
+        catch (System.Exception ex)
+        {
+            ActivityLog.WriteInteraction("load-sound", string.Empty, 0, $"failed:{FormatError(ex)}");
+        }
 
         _freshnessTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -89,6 +135,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         };
         _trayPulseTimer.Tick += (_, _) =>
         {
+            if (_monitoringPaused)
+            {
+                if (_notifyIcon is not null && _trayPausedIcon is not null)
+                {
+                    _notifyIcon.Icon = _trayPausedIcon;
+                }
+
+                return;
+            }
+
             if (_notifyIcon is null || _trayIcon is null || _trayActiveIcon is null)
             {
                 return;
@@ -97,6 +153,18 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             _trayPulseIsBright = !_trayPulseIsBright;
             _notifyIcon.Icon = _trayPulseIsBright ? _trayActiveIcon : _trayIcon;
         };
+        _releaseCheckTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = System.TimeSpan.FromHours(1)
+        };
+        _releaseCheckTimer.Tick += async (_, _) => await CheckForReleaseAsync(force: false);
+        _smoothScrollTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Render,
+            Dispatcher)
+        {
+            Interval = System.TimeSpan.FromMilliseconds(16)
+        };
+        _smoothScrollTimer.Tick += SmoothScrollTimer_Tick;
         Activated += (_, _) => EnforceTopmost();
     }
 
@@ -125,6 +193,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         uint flags);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(System.IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(System.IntPtr hWnd);
 
@@ -132,7 +203,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool DestroyIcon(System.IntPtr iconHandle);
 
-    private void Window_Loaded(object sender, System.Windows.RoutedEventArgs e)
+    private async void Window_Loaded(object sender, System.Windows.RoutedEventArgs e)
     {
         EnforceTopmost();
         PositionWindow();
@@ -151,16 +222,20 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             return;
         }
 
-        if (!System.IO.Directory.Exists(_downloadsPath))
+        if (System.IO.Directory.Exists(_downloadsPath))
         {
-            UpdateEmptyState();
-            return;
+            StartWatcher();
+            LoadInitialDownloads();
         }
 
-        StartWatcher();
-        LoadInitialDownloads();
+        var loggedDownloads = await ActivityLog.ReadRecentDownloadsAsync(MaxItems);
+        MergeLoggedDownloads(loggedDownloads);
+        TrimHistoryToLimit();
+        QueueSha256ForLiveDownloads();
         RefreshDownloadsView();
         _freshnessTimer.Start();
+        _releaseCheckTimer.Start();
+        _ = CheckForReleaseAsync(force: false);
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -181,15 +256,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         var names = new[]
         {
             "neon-grid-reference.png",
-            "night-shift-notes.md",
             "signal-decoder-v2.4.1-win-x64.exe",
-            "city-sector-map.pdf",
             "archive-node-07.zip",
-            "terminal-color-profile.json",
-            "cyberdeck-firmware.bin",
-            "relay-diagnostics.txt",
-            "electric-skyline-wallpaper.webp",
-            "download-watcher-release-notes.md"
+            "city-sector-map.pdf",
+            "night-shift-notes.md",
+            "project-briefing.pptx",
+            "sector-ledger.xlsx",
+            "drone-feed.mp4",
+            "electric-spark.flac",
+            "relay-map.torrent"
         };
         var now = System.DateTime.Now;
         for (var index = names.Length - 1; index >= 0; index--)
@@ -246,6 +321,59 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private void Window_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         System.Windows.Input.Mouse.OverrideCursor = null;
+    }
+
+    private void DownloadsList_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.ListView listView)
+        {
+            return;
+        }
+
+        _downloadsScrollViewer ??= FindNamedVisualChild<System.Windows.Controls.ScrollViewer>(listView, "PART_ScrollViewer");
+        _lastListScrollAt = System.DateTime.UtcNow;
+        if (_downloadsScrollViewer is null)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (_downloadsScrollViewer.ScrollableHeight <= 0)
+        {
+            return;
+        }
+
+        if (!_smoothScrollTimer.IsEnabled)
+        {
+            _smoothScrollTarget = _downloadsScrollViewer.VerticalOffset;
+        }
+
+        const double pixelsPerWheelNotch = 36;
+        _smoothScrollTarget = System.Math.Clamp(
+            _smoothScrollTarget - ((double)e.Delta / 120) * pixelsPerWheelNotch,
+            0,
+            _downloadsScrollViewer.ScrollableHeight);
+        _smoothScrollTimer.Start();
+    }
+
+    private void SmoothScrollTimer_Tick(object? sender, System.EventArgs e)
+    {
+        if (_downloadsScrollViewer is null)
+        {
+            _smoothScrollTimer.Stop();
+            return;
+        }
+
+        var distance = _smoothScrollTarget - _downloadsScrollViewer.VerticalOffset;
+        if (System.Math.Abs(distance) < 0.35)
+        {
+            _downloadsScrollViewer.ScrollToVerticalOffset(_smoothScrollTarget);
+            _smoothScrollTimer.Stop();
+            return;
+        }
+
+        _downloadsScrollViewer.ScrollToVerticalOffset(
+            _downloadsScrollViewer.VerticalOffset + (distance * 0.32));
     }
 
     private void ToolTip_Opened(object sender, System.Windows.RoutedEventArgs e)
@@ -399,6 +527,51 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         UpdateMuteIcon();
     }
 
+    private void ToggleMonitoring_Click(object sender, System.Windows.RoutedEventArgs e) => ToggleMonitoring();
+
+    private void ToggleMonitoring()
+    {
+        _monitoringPaused = !_monitoringPaused;
+        if (_watcher is null && !_monitoringPaused && System.IO.Directory.Exists(_downloadsPath))
+        {
+            StartWatcher();
+        }
+        else if (_watcher is not null)
+        {
+            _watcher.EnableRaisingEvents = !_monitoringPaused;
+        }
+
+        _activeBrowserDownloads.Clear();
+        UpdateMonitoringUi();
+        ActivityLog.WriteInteraction(
+            _monitoringPaused ? "monitoring-paused" : "monitoring-resumed",
+            string.Empty,
+            0);
+    }
+
+    private void UpdateMonitoringUi()
+    {
+        if (_monitoringMenuItem is not null)
+        {
+            _monitoringMenuItem.Text = _monitoringPaused ? "Resume monitoring" : "Pause monitoring";
+            _monitoringMenuItem.Checked = false;
+        }
+
+        if (FindName("MonitoringToggleButton") is System.Windows.Controls.Button button)
+        {
+            button.ToolTip = _monitoringPaused ? "Resume monitoring" : "Pause monitoring";
+        }
+
+        if (FindName("MonitoringToggleIconPath") is System.Windows.Shapes.Path path)
+        {
+            path.Data = System.Windows.Media.Geometry.Parse(_monitoringPaused
+                ? "M5,3 L14,9 L5,15 Z"
+                : "M5,4 H8 V14 H5 Z M10,4 H13 V14 H10 Z");
+        }
+
+        UpdateBrowserActivityIndicator();
+    }
+
     private void HideToTray_Click(object sender, System.Windows.RoutedEventArgs e) =>
         HideToTray(showFirstTimeNotification: true);
 
@@ -497,9 +670,36 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             && border.Tag is DownloadEntry entry
             && entry.ExistsNow)
         {
-            ActivityLog.WriteInteraction("open", entry.FileName, entry.FileSizeBytes);
-            OpenPathInShell(entry.FullPath);
             e.Handled = true;
+            if (System.DateTime.UtcNow - _lastListScrollAt < System.TimeSpan.FromMilliseconds(400))
+            {
+                return;
+            }
+
+            PerformDefaultAction(entry);
+        }
+    }
+
+    private void PerformDefaultAction(DownloadEntry entry)
+    {
+        switch (_defaultAction)
+        {
+            case DownloadDefaultAction.ShowInExplorer:
+                ShowFileInExplorer(entry);
+                break;
+            case DownloadDefaultAction.CopyAsPath:
+                CopyPathToClipboard(entry);
+                break;
+            case DownloadDefaultAction.CopyFile:
+                SetFileClipboard(entry, isCut: false);
+                break;
+            case DownloadDefaultAction.CutFile:
+                SetFileClipboard(entry, isCut: true);
+                break;
+            default:
+                ActivityLog.WriteInteraction("open", entry.FileName, entry.FileSizeBytes);
+                OpenPathInShell(entry.FullPath);
+                break;
         }
     }
 
@@ -518,6 +718,84 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
             SetFileClipboard(entry, isCut: true);
+        }
+    }
+
+    private void CopyAsPath_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is DownloadEntry entry)
+        {
+            CopyPathToClipboard(entry);
+        }
+    }
+
+    private void CopySha256_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is not DownloadEntry entry
+            || !entry.IsSha256Available
+            || string.IsNullOrWhiteSpace(entry.Sha256))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(entry.Sha256);
+            ActivityLog.WriteInteraction("copy-sha256", entry.FileName, entry.FileSizeBytes);
+        }
+        catch (System.Exception ex)
+        {
+            LogOperationFailure("copy-sha256", entry, FormatError(ex));
+            ShowOperationFailure("copy-sha256", entry.FileName);
+        }
+    }
+
+    private void CopyPathToClipboard(DownloadEntry entry)
+    {
+        if (!System.IO.File.Exists(entry.FullPath))
+        {
+            LogOperationFailure("copy-as-path", entry, "System.IO.FileNotFoundException: file no longer exists");
+            ShowOperationFailure("copy-as-path", entry.FileName);
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(ClipboardPathFormatter.Format(entry.FullPath));
+            ActivityLog.WriteInteraction("copy-as-path", entry.FileName, entry.FileSizeBytes);
+        }
+        catch (System.Exception ex)
+        {
+            LogOperationFailure("copy-as-path", entry, FormatError(ex));
+            ShowOperationFailure("copy-as-path", entry.FileName);
+        }
+    }
+
+    private void ShowFileInExplorer(DownloadEntry entry)
+    {
+        if (!System.IO.File.Exists(entry.FullPath))
+        {
+            LogOperationFailure("show-in-explorer", entry, "System.IO.FileNotFoundException: file no longer exists");
+            ShowOperationFailure("show-in-explorer", entry.FileName);
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{entry.FullPath}\"",
+                UseShellExecute = true
+            });
+            ActivityLog.WriteInteraction("show-in-explorer", entry.FileName, entry.FileSizeBytes);
+        }
+        catch (System.Exception ex)
+        {
+            LogOperationFailure("show-in-explorer", entry, FormatError(ex));
+            ShowOperationFailure("show-in-explorer", entry.FileName);
         }
     }
 
@@ -596,6 +874,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             entry.ExistsNow = true;
             entry.DeleteRequested = false;
             entry.DeletionLogged = false;
+            QueueSha256Calculation(entry, resetExistingHash: true);
             ActivityLog.WriteInteraction(
                 dialog.OverwriteExisting ? "rename-overwrite" : "rename",
                 $"{oldName} -> {entry.FileName}",
@@ -658,6 +937,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 System.IO.File.Delete(entry.FullPath);
             }
 
+            entry.ExistsNow = false;
             entry.TouchedAt = System.DateTime.Now;
             entry.DeletionLogged = true;
             ActivityLog.WriteDeletion(
@@ -678,6 +958,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         var message = action switch
         {
             "copy" => $"Could not copy '{fileName}'. The file may have been moved, renamed, or deleted, or the clipboard may be unavailable.",
+            "copy-as-path" => $"Could not copy the path for '{fileName}'. The file may have been moved, renamed, or deleted, or the clipboard may be unavailable.",
+            "copy-sha256" => $"Could not copy the SHA-256 for '{fileName}'. The clipboard may be unavailable.",
+            "show-in-explorer" => $"Could not show '{fileName}' in Explorer. The file may have been moved, renamed, or deleted.",
             "cut" => $"Could not cut '{fileName}'. The file may have been moved, renamed, or deleted, or the clipboard may be unavailable.",
             "rename" => $"Could not rename '{fileName}'. The file may have been moved, deleted, locked, or access may have changed.",
             "delete" => $"Could not delete '{fileName}'. The file may have been moved, renamed, locked, or access may have changed.",
@@ -738,7 +1021,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     public void ShowFromTray()
     {
         ActivityLog.WriteInteraction("show-from-tray", string.Empty, 0);
-        ShowInTaskbar = true;
+        ShowInTaskbar = false;
         if (!IsVisible)
         {
             Show();
@@ -796,8 +1079,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _trayIcon = null;
         _trayActiveIcon?.Dispose();
         _trayActiveIcon = null;
+        _trayPausedIcon?.Dispose();
+        _trayPausedIcon = null;
         _playSoundMenuItem = null;
         _deleteToRecycleBinMenuItem = null;
+        _monitoringMenuItem = null;
+        _aboutMenuItem = null;
+        _checkReleaseMenuItem = null;
+        _downloadReleaseMenuItem = null;
+        _dailyUpdateChecksMenuItem = null;
     }
 
     private static string GetDownloadsPath()
@@ -819,15 +1109,37 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void PositionWindow()
     {
-        var workArea = System.Windows.SystemParameters.WorkArea;
-        Left = workArea.Right - Width;
-        Top = workArea.Top + (workArea.Height - Height) / 2;
+        var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (primaryScreen is null || handle == System.IntPtr.Zero)
+        {
+            var workArea = System.Windows.SystemParameters.WorkArea;
+            Left = workArea.Right - Width;
+            Top = workArea.Top + (workArea.Height - Height) / 2;
+            return;
+        }
+
+        var dpi = GetDpiForWindow(handle);
+        var scale = dpi > 0 ? dpi / 96.0 : 1.0;
+        var windowSize = new System.Drawing.Size(
+            (int)System.Math.Ceiling((ActualWidth > 0 ? ActualWidth : Width) * scale),
+            (int)System.Math.Ceiling((ActualHeight > 0 ? ActualHeight : Height) * scale));
+        var placement = DialogPlacement.CalculateRightCenter(primaryScreen.WorkingArea, windowSize);
+        SetWindowPos(
+            handle,
+            System.IntPtr.Zero,
+            placement.X,
+            placement.Y,
+            0,
+            0,
+            SetWindowPosNoActivate | SetWindowPosNoSize | SetWindowPosNoZOrder);
     }
 
     private void SetupTrayIcon()
     {
-        _trayIcon = CreateTrayIcon(isActive: false);
-        _trayActiveIcon = CreateTrayIcon(isActive: true);
+        _trayIcon = CreateTrayIcon(isActive: false, _updateAvailable);
+        _trayActiveIcon = CreateTrayIcon(isActive: true, _updateAvailable);
+        _trayPausedIcon = CreatePausedTrayIcon(_updateAvailable);
         _notifyIcon = new System.Windows.Forms.NotifyIcon
         {
             Text = TrayStatusText.Build(isDownloadInProgress: false, completedFileName: null),
@@ -873,6 +1185,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         };
         show.Click += (_, _) => Dispatcher.Invoke(ShowFromTray);
 
+        _monitoringMenuItem = new System.Windows.Forms.ToolStripMenuItem(
+            _monitoringPaused ? "Resume monitoring" : "Pause monitoring")
+        {
+            CheckOnClick = false,
+            Checked = false,
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _monitoringMenuItem.Click += (_, _) => Dispatcher.Invoke(ToggleMonitoring);
+
         var startWithWindows = new System.Windows.Forms.ToolStripMenuItem("Start with Windows")
         {
             CheckOnClick = false,
@@ -917,6 +1239,123 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             SaveCurrentSettings("delete-to-recycle-bin", _deleteToRecycleBin.ToString(System.Globalization.CultureInfo.InvariantCulture));
         };
 
+        var defaultActionMenu = new System.Windows.Forms.ToolStripMenuItem("Default action")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        defaultActionMenu.DropDown = new System.Windows.Forms.ContextMenuStrip
+        {
+            BackColor = menu.BackColor,
+            ForeColor = menu.ForeColor,
+            Font = menu.Font,
+            Renderer = menu.Renderer,
+            ShowCheckMargin = true,
+            ShowImageMargin = false,
+            Padding = menu.Padding
+        };
+        var defaultActionItems = new System.Collections.Generic.Dictionary<DownloadDefaultAction, System.Windows.Forms.ToolStripMenuItem>();
+        var defaultActions = new (DownloadDefaultAction Action, string Label)[]
+        {
+            (DownloadDefaultAction.OpenFile, "Open file"),
+            (DownloadDefaultAction.ShowInExplorer, "Show in Explorer"),
+            (DownloadDefaultAction.CopyAsPath, "Copy as path"),
+            (DownloadDefaultAction.CopyFile, "Copy file"),
+            (DownloadDefaultAction.CutFile, "Cut file")
+        };
+        foreach (var choice in defaultActions)
+        {
+            var actionItem = new System.Windows.Forms.ToolStripMenuItem(choice.Label)
+            {
+                CheckOnClick = false,
+                Checked = _defaultAction == choice.Action,
+                ForeColor = menu.ForeColor,
+                Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+            };
+            actionItem.Click += (_, _) =>
+            {
+                _defaultAction = choice.Action;
+                foreach (var pair in defaultActionItems)
+                {
+                    pair.Value.Checked = pair.Key == _defaultAction;
+                }
+
+                SaveCurrentSettings("default-action", _defaultAction.ToString());
+            };
+            defaultActionItems.Add(choice.Action, actionItem);
+            defaultActionMenu.DropDownItems.Add(actionItem);
+        }
+        _aboutMenuItem = new System.Windows.Forms.ToolStripMenuItem(_updateAvailable ? "! About" : "About")
+        {
+            ForeColor = _updateAvailable
+                ? System.Drawing.Color.FromArgb(255, 204, 51)
+                : menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _aboutMenuItem.DropDown = new System.Windows.Forms.ContextMenuStrip
+        {
+            BackColor = menu.BackColor,
+            ForeColor = menu.ForeColor,
+            Font = menu.Font,
+            Renderer = menu.Renderer,
+            ShowCheckMargin = true,
+            ShowImageMargin = false,
+            Padding = menu.Padding
+        };
+        var productPage = new System.Windows.Forms.ToolStripMenuItem("Product page")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        productPage.Click += (_, _) => Dispatcher.Invoke(() => OpenWebPage(
+            ReleaseUpdateChecker.ProductPageUrl,
+            "open-product-page"));
+        _checkReleaseMenuItem = new System.Windows.Forms.ToolStripMenuItem("Check for new release")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _checkReleaseMenuItem.Click += async (_, _) =>
+        {
+            var invocationPoint = System.Windows.Forms.Cursor.Position;
+            await Dispatcher.InvokeAsync(async () =>
+                await CheckForReleaseAsync(force: true, invocationPoint)).Task.Unwrap();
+        };
+        _dailyUpdateChecksMenuItem = new System.Windows.Forms.ToolStripMenuItem("Check for new version daily")
+        {
+            CheckOnClick = false,
+            Checked = _checkForUpdatesDaily,
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _dailyUpdateChecksMenuItem.Click += async (_, _) =>
+        {
+            _checkForUpdatesDaily = !_checkForUpdatesDaily;
+            _dailyUpdateChecksMenuItem.Checked = _checkForUpdatesDaily;
+            SaveCurrentSettings(
+                "check-for-new-version-daily",
+                _checkForUpdatesDaily.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (_checkForUpdatesDaily)
+            {
+                await Dispatcher.InvokeAsync(async () => await CheckForReleaseAsync(force: false)).Task.Unwrap();
+            }
+        };
+        _downloadReleaseMenuItem = new System.Windows.Forms.ToolStripMenuItem("Download latest release")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _downloadReleaseMenuItem.Click += (_, _) => Dispatcher.Invoke(() => OpenWebPage(
+            string.IsNullOrWhiteSpace(_latestReleaseUrl)
+                ? ReleaseUpdateChecker.LatestReleasePageUrl
+                : _latestReleaseUrl,
+            "open-latest-release"));
+        _aboutMenuItem.DropDownItems.Add(productPage);
+        _aboutMenuItem.DropDownItems.Add(_checkReleaseMenuItem);
+        _aboutMenuItem.DropDownItems.Add(_dailyUpdateChecksMenuItem);
+        _aboutMenuItem.DropDownItems.Add(_downloadReleaseMenuItem);
+        UpdateReleaseMenuState();
+
         var openLog = new System.Windows.Forms.ToolStripMenuItem("Open log")
         {
             ForeColor = menu.ForeColor,
@@ -936,7 +1375,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ForeColor = System.Drawing.Color.FromArgb(220, 255, 84, 112),
             Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
         };
-        deleteAllDownloads.Click += (_, _) => Dispatcher.Invoke(ConfirmDeleteAllDownloads);
+        deleteAllDownloads.Click += (_, _) =>
+        {
+            var invocationPoint = System.Windows.Forms.Cursor.Position;
+            Dispatcher.Invoke(() => ConfirmDeleteAllDownloads(invocationPoint));
+        };
 
         var exit = new System.Windows.Forms.ToolStripMenuItem("Exit")
         {
@@ -955,24 +1398,161 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         };
 
         menu.Items.Add(show);
+        menu.Items.Add(_monitoringMenuItem);
         menu.Items.Add(startWithWindows);
         menu.Items.Add(_playSoundMenuItem);
         menu.Items.Add(_deleteToRecycleBinMenuItem);
+        menu.Items.Add(defaultActionMenu);
         menu.Items.Add(openDownloads);
         menu.Items.Add(openLog);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(deleteAllDownloads);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add(_aboutMenuItem);
         menu.Items.Add(exit);
         return menu;
     }
 
-    private async void ConfirmDeleteAllDownloads()
+    private async System.Threading.Tasks.Task CheckForReleaseAsync(
+        bool force,
+        System.Drawing.Point? invocationPoint = null)
+    {
+        if (_isScreenshotMode || _releaseCheckInProgress || (!force && !_checkForUpdatesDaily))
+        {
+            return;
+        }
+
+        var checkedAt = System.DateTimeOffset.UtcNow;
+        if (!force
+            && _lastReleaseCheckUtc is { } lastCheck
+            && checkedAt - lastCheck < System.TimeSpan.FromDays(1))
+        {
+            return;
+        }
+
+        _releaseCheckInProgress = true;
+        _lastReleaseCheckUtc = checkedAt;
+        UpdateReleaseMenuState();
+        ActivityLog.WriteInteraction(
+            "check-release",
+            string.Empty,
+            0,
+            force ? "manual-started" : "automatic-started");
+
+        var result = await ReleaseUpdateChecker.CheckAsync(GetDisplayVersion());
+        if (result.Success)
+        {
+            _latestReleaseVersion = result.LatestVersion;
+            _latestReleaseUrl = result.ReleaseUrl;
+            _updateAvailable = result.UpdateAvailable;
+            ActivityLog.WriteInteraction(
+                "check-release",
+                string.Empty,
+                0,
+                $"ok;running={GetDisplayVersion()};latest={_latestReleaseVersion};update={_updateAvailable}");
+            if (force)
+            {
+                ShowReleaseCheckResult(invocationPoint);
+            }
+        }
+        else
+        {
+            ActivityLog.WriteInteraction("check-release", string.Empty, 0, $"failed:{result.Error}");
+        }
+
+        _releaseCheckInProgress = false;
+        PersistReleaseState();
+        UpdateReleaseMenuState();
+        RefreshTrayIconsForUpdateState();
+    }
+
+    private void ShowReleaseCheckResult(System.Drawing.Point? invocationPoint)
+    {
+        var runningVersion = GetDisplayVersion();
+        var message = _updateAvailable
+            ? $"Version {_latestReleaseVersion} is available. Use About > Download v{_latestReleaseVersion} to open the release page."
+            : $"Version {runningVersion} is current. No newer published release was found.";
+        var heading = _updateAvailable
+            ? "RELEASE SIGNAL // UPDATE AVAILABLE"
+            : "RELEASE SIGNAL // SYSTEM CURRENT";
+        var dialog = new NoticeDialog(
+            message,
+            heading,
+            _updateAvailable ? NoticeDialogTone.Update : NoticeDialogTone.Success,
+            invocationPoint);
+        if (IsVisible)
+        {
+            dialog.Owner = this;
+        }
+        else
+        {
+            dialog.WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen;
+        }
+
+        ActivityLog.WriteInteraction(
+            "show-release-check-result",
+            _latestReleaseVersion ?? runningVersion,
+            0,
+            _updateAvailable ? "update-available" : "current");
+        dialog.ShowDialog();
+    }
+
+    private void UpdateReleaseMenuState()
+    {
+        if (_aboutMenuItem is not null)
+        {
+            _aboutMenuItem.Text = _updateAvailable ? "! About" : "About";
+            _aboutMenuItem.ForeColor = _updateAvailable
+                ? System.Drawing.Color.FromArgb(255, 204, 51)
+                : System.Drawing.Color.FromArgb(95, 210, 122);
+        }
+
+        if (_checkReleaseMenuItem is not null)
+        {
+            _checkReleaseMenuItem.Enabled = !_releaseCheckInProgress;
+            _checkReleaseMenuItem.Text = _releaseCheckInProgress
+                ? "Checking for new release..."
+                : _updateAvailable && !string.IsNullOrWhiteSpace(_latestReleaseVersion)
+                    ? $"! Update available: v{_latestReleaseVersion}"
+                    : !string.IsNullOrWhiteSpace(_latestReleaseVersion)
+                        ? $"Check for new release  [v{_latestReleaseVersion} current]"
+                        : "Check for new release";
+            _checkReleaseMenuItem.ForeColor = _updateAvailable
+                ? System.Drawing.Color.FromArgb(255, 204, 51)
+                : System.Drawing.Color.FromArgb(95, 210, 122);
+        }
+
+        if (_downloadReleaseMenuItem is not null)
+        {
+            _downloadReleaseMenuItem.Text = _updateAvailable && !string.IsNullOrWhiteSpace(_latestReleaseVersion)
+                ? $"Download v{_latestReleaseVersion}"
+                : "Download latest release";
+        }
+    }
+
+    private static void OpenWebPage(string url, string activity)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+            ActivityLog.WriteInteraction(activity, url, 0);
+        }
+        catch (System.Exception ex)
+        {
+            ActivityLog.WriteInteraction(activity, url, 0, $"failed:{FormatError(ex)}");
+        }
+    }
+
+    private async void ConfirmDeleteAllDownloads(System.Drawing.Point invocationPoint)
     {
         var warning = _deleteToRecycleBin
             ? "This will delete all downloaded files, not only the files visible in the app. Files will be sent to the Recycle Bin."
             : "This will permanently delete all downloaded files, not only the files visible in the app. Recycle Bin is OFF and these files cannot be restored by the app.";
-        var dialog = new ConfirmationDialog(warning) { Owner = this };
+        var dialog = new ConfirmationDialog(warning, invocationPoint) { Owner = this };
         if (dialog.ShowDialog() is not true)
         {
             ActivityLog.WriteInteraction("delete-all", _downloadsPath, 0, "cancelled");
@@ -1005,6 +1585,13 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             0,
             $"{(recycle ? "confirmed-recycle-bin" : "confirmed-permanent")};count={files.LongLength}");
         var failedPaths = await System.Threading.Tasks.Task.Run(() => DeleteAllDownloads(files, recycle));
+        foreach (var entry in _downloads.Where(entry =>
+                     files.Contains(entry.FullPath, System.StringComparer.OrdinalIgnoreCase)
+                     && !failedPaths.Contains(entry.FullPath, System.StringComparer.OrdinalIgnoreCase)))
+        {
+            entry.ExistsNow = false;
+        }
+
         foreach (var entry in _downloads.Where(entry => failedPaths.Contains(entry.FullPath, System.StringComparer.OrdinalIgnoreCase)))
         {
             entry.DeleteRequested = false;
@@ -1073,67 +1660,78 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
-    private static System.Drawing.Icon CreateTrayIcon(bool isActive)
+    private static System.Drawing.Icon CreateTrayIcon(bool isActive, bool hasUpdate = false)
+    {
+        return CreateTrayStateIcon(isActive, isPaused: false, hasUpdate);
+    }
+
+    private static System.Drawing.Icon CreatePausedTrayIcon(bool hasUpdate = false)
+    {
+        return CreateTrayStateIcon(isActive: false, isPaused: true, hasUpdate);
+    }
+
+    private static System.Drawing.Icon CreateTrayStateIcon(bool isActive, bool isPaused, bool hasUpdate)
     {
         using var bitmap = new System.Drawing.Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
         {
-            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            graphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
             graphics.Clear(System.Drawing.Color.Transparent);
 
-            using var outer = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(isActive ? 18 : 7, 45, 126, 68));
-            using var ring = new System.Drawing.Pen(
-                System.Drawing.Color.FromArgb(isActive ? 205 : 125, isActive ? 70 : 55, isActive ? 220 : 145, isActive ? 110 : 75),
-                2.1f);
-            using var glow = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(isActive ? 48 : 18, 59, 158, 82));
-            using var arrow = new System.Drawing.SolidBrush(
-                System.Drawing.Color.FromArgb(isActive ? 235 : 165, isActive ? 55 : 35, isActive ? 235 : 150, isActive ? 100 : 65));
-            using var arrowDark = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(180, 7, 30, 16));
-
-            graphics.FillEllipse(outer, 0, 0, 32, 32);
-            graphics.FillEllipse(glow, 1, 1, 30, 30);
-            graphics.DrawEllipse(ring, 1, 1, 30, 30);
-
-            var path = new System.Drawing.Drawing2D.GraphicsPath();
-            path.AddPolygon(new[]
+            var resource = System.Windows.Application.GetResourceStream(
+                new System.Uri("pack://application:,,,/Assets/voltura-download-watcher.ico", System.UriKind.Absolute));
+            if (resource is not null)
             {
-                new System.Drawing.PointF(16, 23),
-                new System.Drawing.PointF(25, 14),
-                new System.Drawing.PointF(21, 14),
-                new System.Drawing.PointF(21, 5),
-                new System.Drawing.PointF(11, 5),
-                new System.Drawing.PointF(11, 14),
-                new System.Drawing.PointF(7, 14)
-            });
+                using (resource.Stream)
+                using (var sourceIcon = new System.Drawing.Icon(resource.Stream, 32, 32))
+                using (var sourceBitmap = sourceIcon.ToBitmap())
+                using (var attributes = new System.Drawing.Imaging.ImageAttributes())
+                {
+                    var opacity = isPaused ? 0.30f : isActive ? 1.0f : 0.68f;
+                    var matrix = new System.Drawing.Imaging.ColorMatrix { Matrix33 = opacity };
+                    attributes.SetColorMatrix(matrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
+                    graphics.DrawImage(
+                        sourceBitmap,
+                        new System.Drawing.Rectangle(0, 0, 32, 32),
+                        0,
+                        0,
+                        sourceBitmap.Width,
+                        sourceBitmap.Height,
+                        System.Drawing.GraphicsUnit.Pixel,
+                        attributes);
+                }
+            }
 
-            var tray = new System.Drawing.Drawing2D.GraphicsPath();
-            tray.AddPolygon(new[]
+            if (isActive)
             {
-                new System.Drawing.PointF(3, 23),
-                new System.Drawing.PointF(29, 23),
-                new System.Drawing.PointF(27, 28),
-                new System.Drawing.PointF(5, 28)
-            });
+                using var pulse = new System.Drawing.Pen(System.Drawing.Color.FromArgb(220, 90, 255, 145), 1.4f);
+                graphics.DrawLine(pulse, 2, 3, 9, 3);
+                graphics.DrawLine(pulse, 3, 2, 3, 9);
+                graphics.DrawLine(pulse, 23, 29, 30, 29);
+                graphics.DrawLine(pulse, 29, 23, 29, 30);
+            }
 
-            var scan = new System.Drawing.Drawing2D.GraphicsPath();
-            scan.AddPolygon(new[]
+            if (isPaused)
             {
-                new System.Drawing.PointF(4, 22),
-                new System.Drawing.PointF(28, 22),
-                new System.Drawing.PointF(26, 24),
-                new System.Drawing.PointF(6, 24)
-            });
+                using var pauseBackdrop = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(205, 3, 18, 9));
+                using var pauseOutline = new System.Drawing.Pen(System.Drawing.Color.FromArgb(145, 58, 156, 86), 1.2f);
+                using var pauseFill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(205, 76, 174, 101));
+                graphics.FillRectangle(pauseBackdrop, 7, 6, 18, 20);
+                graphics.DrawRectangle(pauseOutline, 7, 6, 18, 20);
+                graphics.FillRectangle(pauseFill, 11, 10, 3, 12);
+                graphics.FillRectangle(pauseFill, 18, 10, 3, 12);
+            }
 
-            graphics.FillPath(arrowDark, tray);
-            using var scanFill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(isActive ? 90 : 42, 38, 166, 73));
-            using var arrowOutline = new System.Drawing.Pen(System.Drawing.Color.FromArgb(isActive ? 145 : 78, 92, 172, 112), 1.05f);
-            using var trayOutline = new System.Drawing.Pen(System.Drawing.Color.FromArgb(isActive ? 165 : 92, 59, 158, 82), 1.2f);
-            using var scanOutline = new System.Drawing.Pen(System.Drawing.Color.FromArgb(isActive ? 120 : 60, 59, 158, 82), 1f);
-            graphics.FillPath(scanFill, scan);
-            graphics.FillPath(arrow, path);
-            graphics.DrawPath(arrowOutline, path);
-            graphics.DrawPath(trayOutline, tray);
-            graphics.DrawPath(scanOutline, scan);
+            if (hasUpdate)
+            {
+                using var updateFill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(245, 255, 204, 51));
+                using var updateBorder = new System.Drawing.Pen(System.Drawing.Color.FromArgb(220, 35, 25, 8), 1.2f);
+                graphics.FillEllipse(updateFill, 23, 2, 7, 7);
+                graphics.DrawEllipse(updateBorder, 23, 2, 7, 7);
+            }
         }
 
         var iconHandle = bitmap.GetHicon();
@@ -1145,6 +1743,184 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         finally
         {
             DestroyIcon(iconHandle);
+        }
+    }
+
+    private void RefreshTrayIconsForUpdateState()
+    {
+        var normal = CreateTrayIcon(isActive: false, _updateAvailable);
+        var active = CreateTrayIcon(isActive: true, _updateAvailable);
+        var paused = CreatePausedTrayIcon(_updateAvailable);
+        var oldNormal = _trayIcon;
+        var oldActive = _trayActiveIcon;
+        var oldPaused = _trayPausedIcon;
+        _trayIcon = normal;
+        _trayActiveIcon = active;
+        _trayPausedIcon = paused;
+
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Icon = _monitoringPaused
+                ? _trayPausedIcon
+                : _activeBrowserDownloads.Count > 0 && _trayPulseIsBright
+                    ? _trayActiveIcon
+                    : _trayIcon;
+        }
+
+        oldNormal?.Dispose();
+        oldActive?.Dispose();
+        oldPaused?.Dispose();
+    }
+
+    private void QueueSha256ForLiveDownloads()
+    {
+        foreach (var entry in _downloads.Where(entry => entry.ExistsNow))
+        {
+            QueueSha256Calculation(entry, resetExistingHash: true);
+        }
+    }
+
+    private void QueueSha256Calculation(DownloadEntry entry, bool resetExistingHash)
+    {
+        if (_isScreenshotMode || !entry.ExistsNow || !System.IO.File.Exists(entry.FullPath))
+        {
+            entry.Sha256State = Sha256State.Unavailable;
+            return;
+        }
+
+        var path = entry.FullPath;
+        if (resetExistingHash)
+        {
+            entry.Sha256 = null;
+        }
+        else if (entry.IsSha256Available)
+        {
+            return;
+        }
+
+        entry.Sha256State = Sha256State.Pending;
+        if (!_sha256QueuedPaths.TryAdd(path, 0))
+        {
+            return;
+        }
+
+        if (!_sha256Queue.Writer.TryWrite(new Sha256WorkItem(entry, path)))
+        {
+            _sha256QueuedPaths.TryRemove(path, out _);
+            entry.Sha256State = Sha256State.Unavailable;
+        }
+    }
+
+    private async System.Threading.Tasks.Task ProcessSha256QueueAsync()
+    {
+        try
+        {
+            await foreach (var workItem in _sha256Queue.Reader.ReadAllAsync(_sha256Cancellation.Token)
+                .ConfigureAwait(false))
+            {
+                try
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (workItem.Entry.ExistsNow
+                            && string.Equals(
+                                workItem.Entry.FullPath,
+                                workItem.Path,
+                                System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            workItem.Entry.Sha256State = Sha256State.Calculating;
+                        }
+                    });
+
+                    var result = await Sha256Calculator.CalculateStableAsync(
+                        workItem.Path,
+                        _sha256Cancellation.Token).ConfigureAwait(false);
+                    await Dispatcher.InvokeAsync(() => ApplySha256Result(workItem, result));
+                }
+                catch (System.OperationCanceledException) when (_sha256Cancellation.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (System.Exception ex)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (string.Equals(
+                                workItem.Entry.FullPath,
+                                workItem.Path,
+                                System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            workItem.Entry.Sha256State = Sha256State.Unavailable;
+                        }
+                    });
+                    ActivityLog.WriteInteraction(
+                        "sha256-calculated",
+                        workItem.Entry.FileName,
+                        workItem.Entry.FileSizeBytes,
+                        $"failed:{FormatError(ex)}");
+                }
+                finally
+                {
+                    _sha256QueuedPaths.TryRemove(workItem.Path, out _);
+                }
+            }
+        }
+        catch (System.OperationCanceledException) when (_sha256Cancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void ApplySha256Result(Sha256WorkItem workItem, Sha256CalculationResult result)
+    {
+        if (!_downloads.Contains(workItem.Entry)
+            || !string.Equals(workItem.Entry.FullPath, workItem.Path, System.StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!workItem.Entry.ExistsNow || !System.IO.File.Exists(workItem.Path))
+        {
+            workItem.Entry.Sha256State = Sha256State.Unavailable;
+            return;
+        }
+
+        if (result.Success && result.Hash is not null)
+        {
+            workItem.Entry.Sha256 = result.Hash;
+            workItem.Entry.Sha256State = Sha256State.Available;
+            workItem.Entry.FileSizeBytes = result.SizeBytes;
+            ActivityLog.WriteInteraction(
+                "sha256-calculated",
+                workItem.Entry.FileName,
+                workItem.Entry.FileSizeBytes,
+                $"ok;sha256={result.Hash}");
+            return;
+        }
+
+        workItem.Entry.Sha256State = Sha256State.Pending;
+        _ = RetrySha256AfterDelayAsync(workItem.Entry, workItem.Path);
+    }
+
+    private async System.Threading.Tasks.Task RetrySha256AfterDelayAsync(DownloadEntry entry, string path)
+    {
+        try
+        {
+            await System.Threading.Tasks.Task.Delay(
+                System.TimeSpan.FromSeconds(3),
+                _sha256Cancellation.Token).ConfigureAwait(false);
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (entry.ExistsNow
+                    && string.Equals(entry.FullPath, path, System.StringComparison.OrdinalIgnoreCase)
+                    && System.IO.File.Exists(path)
+                    && entry.Sha256State is not Sha256State.Available)
+                {
+                    QueueSha256Calculation(entry, resetExistingHash: false);
+                }
+            });
+        }
+        catch (System.OperationCanceledException) when (_sha256Cancellation.IsCancellationRequested)
+        {
         }
     }
 
@@ -1163,7 +1939,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _watcher.Renamed += OnRenamed;
         _watcher.Deleted += OnDeleted;
         _watcher.Error += OnWatcherError;
-        _watcher.EnableRaisingEvents = true;
+        _watcher.EnableRaisingEvents = !_monitoringPaused;
     }
 
     private void LoadInitialDownloads()
@@ -1225,8 +2001,70 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         });
     }
 
+    private void MergeLoggedDownloads(
+        System.Collections.Generic.IReadOnlyList<ActivityLog.LoggedDownload> loggedDownloads)
+    {
+        foreach (var logged in loggedDownloads)
+        {
+            var fullPath = System.IO.Path.Combine(_downloadsPath, logged.FileName);
+            var existing = _downloads.FirstOrDefault(entry =>
+                string.Equals(entry.FullPath, fullPath, System.StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                if (logged.DownloadedAt.LocalDateTime > existing.CreatedAt)
+                {
+                    existing.CreatedAt = logged.DownloadedAt.LocalDateTime;
+                }
+
+                existing.FileSizeBytes = System.Math.Max(existing.FileSizeBytes, logged.SizeBytes);
+                continue;
+            }
+
+            var existsNow = System.IO.File.Exists(fullPath);
+            _downloads.Add(new DownloadEntry
+            {
+                FileName = logged.FileName,
+                FullPath = fullPath,
+                CreatedAt = logged.DownloadedAt.LocalDateTime,
+                TouchedAt = logged.DeletedAt?.LocalDateTime ?? logged.DownloadedAt.LocalDateTime,
+                FileSizeBytes = existsNow ? GetFileSize(fullPath, logged.SizeBytes) : logged.SizeBytes,
+                IsFresh = false,
+                IsNewest = false,
+                ExistsNow = existsNow,
+                IsRemovalRecent = false,
+                DeleteRequested = false,
+                DeletionLogged = !existsNow,
+                Sha256 = existsNow ? null : logged.Sha256,
+                Sha256State = existsNow
+                    ? Sha256State.Pending
+                    : string.IsNullOrWhiteSpace(logged.Sha256)
+                        ? Sha256State.Unavailable
+                        : Sha256State.Available
+            });
+        }
+    }
+
+    private void TrimHistoryToLimit()
+    {
+        while (_downloads.Count > MaxItems)
+        {
+            var candidate = DownloadHistoryPolicy.SelectEvictionCandidate(_downloads);
+            if (candidate is null)
+            {
+                break;
+            }
+
+            _downloads.Remove(candidate);
+        }
+    }
+
     private void OnCreated(object sender, System.IO.FileSystemEventArgs e)
     {
+        if (_monitoringPaused)
+        {
+            return;
+        }
+
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.Name ?? string.Empty))
         {
             SetBrowserDownloadActive(e.FullPath, isActive: true);
@@ -1238,6 +2076,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void OnRenamed(object sender, System.IO.RenamedEventArgs e)
     {
+        if (_monitoringPaused)
+        {
+            return;
+        }
+
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.OldName ?? string.Empty))
         {
             SetBrowserDownloadActive(e.OldFullPath, isActive: false);
@@ -1259,6 +2102,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void OnDeleted(object sender, System.IO.FileSystemEventArgs e)
     {
+        if (_monitoringPaused)
+        {
+            return;
+        }
+
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.Name ?? string.Empty))
         {
             SetBrowserDownloadActive(e.FullPath, isActive: false);
@@ -1272,6 +2120,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         Dispatcher.BeginInvoke(() =>
         {
+            if (_monitoringPaused)
+            {
+                return;
+            }
+
             if (isActive)
             {
                 _activeBrowserDownloads.Add(fullPath);
@@ -1292,6 +2145,28 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             return;
         }
+
+        if (_monitoringPaused)
+        {
+            _trayPulseTimer.Stop();
+            _trayPulseIsBright = false;
+            if (_notifyIcon is not null && _trayPausedIcon is not null)
+            {
+                _notifyIcon.Icon = _trayPausedIcon;
+            }
+
+            dot.BeginAnimation(System.Windows.UIElement.OpacityProperty, null);
+            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, null);
+            dot.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x38, 0x49, 0x3D));
+            dot.Opacity = 0.18;
+            scale.ScaleX = 0.72;
+            scale.ScaleY = 0.72;
+            UpdateTrayStatus();
+            return;
+        }
+
+        dot.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x46, 0x97, 0x5A));
 
         if (_activeBrowserDownloads.Count == 0)
         {
@@ -1346,16 +2221,23 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         scale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, scalePulse);
     }
 
-    private void SetDownloadedTrayStatus(string fileName)
+    private void NotifyDownloadArrival(string fileName)
     {
         _recentDownloads.Add((System.DateTime.Now, fileName));
         UpdateTrayStatus();
+        PlaySpark();
     }
 
     private void UpdateTrayStatus()
     {
         if (_notifyIcon is null)
         {
+            return;
+        }
+
+        if (_monitoringPaused)
+        {
+            _notifyIcon.Text = "Voltura Download Watcher - Monitoring paused";
             return;
         }
 
@@ -1372,7 +2254,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void OnWatcherError(object sender, System.IO.ErrorEventArgs e)
     {
-        if (_watcherRecoveryQueued)
+        if (_monitoringPaused || _watcherRecoveryQueued)
         {
             return;
         }
@@ -1382,16 +2264,18 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             try
             {
+                if (_monitoringPaused)
+                {
+                    return;
+                }
+
                 _watcher?.Dispose();
                 _watcher = null;
                 StartWatcher();
                 LoadInitialDownloads();
 
-                while (_downloads.Count > MaxItems)
-                {
-                    _downloads.RemoveAt(_downloads.Count - 1);
-                }
-
+                TrimHistoryToLimit();
+                QueueSha256ForLiveDownloads();
                 RefreshDownloadsView();
             }
             finally
@@ -1405,6 +2289,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         Dispatcher.BeginInvoke(() =>
         {
+            if (_monitoringPaused)
+            {
+                return;
+            }
+
             var fileName = System.IO.Path.GetFileName(fullPath);
             if (string.IsNullOrWhiteSpace(fileName) || !DownloadPolicy.IsValidDownloadName(fileName))
             {
@@ -1425,9 +2314,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 existing.DeleteRequested = false;
                 existing.DeletionLogged = !existsNow;
                 existing.IsRemovalRecent = !existsNow;
+                QueueSha256Calculation(existing, resetExistingHash: true);
                 MoveToTop(existing);
                 ActivityLog.WriteDownload(fileName, existing.FileSizeBytes);
-                SetDownloadedTrayStatus(fileName);
+                NotifyDownloadArrival(fileName);
                 if (!existsNow)
                 {
                     ActivityLog.WriteDeletion("external", fileName, existing.FileSizeBytes);
@@ -1458,21 +2348,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             };
             PinFreshDownload(download, now);
             _downloads.Insert(0, download);
+            QueueSha256Calculation(download, resetExistingHash: true);
 
             ActivityLog.WriteDownload(fileName, fileSizeBytes);
-            SetDownloadedTrayStatus(fileName);
+            NotifyDownloadArrival(fileName);
             if (!fileExistsNow)
             {
                 ActivityLog.WriteDeletion("external", fileName, fileSizeBytes);
             }
 
-            PlaySpark();
-
-            while (_downloads.Count > MaxItems)
-            {
-                _downloads.RemoveAt(_downloads.Count - 1);
-            }
-
+            TrimHistoryToLimit();
             RefreshDownloadsView();
         });
     }
@@ -1500,7 +2385,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private void RefreshFreshness()
     {
         var now = System.DateTime.Now;
-        var expired = new System.Collections.Generic.List<DownloadEntry>();
         var viewNeedsRefresh = false;
         foreach (var entry in _downloads)
         {
@@ -1531,25 +2415,20 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 entry.TouchedAt = now;
             }
 
+            var becameAvailable = !entry.ExistsNow && existsNow;
             entry.ExistsNow = existsNow;
+            if (becameAvailable)
+            {
+                QueueSha256Calculation(entry, resetExistingHash: true);
+            }
             if (!existsNow)
             {
                 var removedForSeconds = (now - entry.TouchedAt).TotalSeconds;
                 entry.IsRemovalRecent = DownloadPolicy.IsRemovalAnimationActive(entry.DeleteRequested, removedForSeconds);
-                var removalLifetime = DownloadPolicy.GetRemovalLifetimeSeconds(entry.DeleteRequested);
-                if (removedForSeconds >= removalLifetime)
-                {
-                    expired.Add(entry);
-                }
             }
         }
 
-        foreach (var entry in expired)
-        {
-            _downloads.Remove(entry);
-        }
-
-        if (viewNeedsRefresh || expired.Count > 0)
+        if (viewNeedsRefresh)
         {
             RefreshDownloadsView();
         }
@@ -1639,6 +2518,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void LogExternalDeletion(string fullPath)
     {
+        if (_monitoringPaused)
+        {
+            return;
+        }
+
         var entry = _downloads.FirstOrDefault(item => string.Equals(
             item.FullPath,
             fullPath,
@@ -1728,8 +2612,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             return;
         }
 
-        _sparkPlayer.Stop();
-        _sparkPlayer.Play();
+        try
+        {
+            _sparkPlayer.Stop();
+            _sparkPlayer.Play();
+        }
+        catch (System.Exception ex)
+        {
+            ActivityLog.WriteInteraction("play-sound", string.Empty, 0, $"failed:{FormatError(ex)}");
+        }
     }
 
     private static byte[] CreateSparkWaveBytes()
@@ -1804,16 +2695,26 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void SaveCurrentSettings(string setting, string value)
     {
-        SaveSettings(new AppSettings
+        SaveSettings(CreateCurrentSettings());
+        ActivityLog.WriteSettingChange(setting, value);
+    }
+
+    private void PersistReleaseState() => SaveSettings(CreateCurrentSettings());
+
+    private AppSettings CreateCurrentSettings() =>
+        new()
         {
             IsMuted = _isMuted,
             DeleteToRecycleBin = _deleteToRecycleBin,
             SortMode = _sortMode,
             SortDescending = _sortDescending,
-            CloseToTrayNotificationShown = _closeToTrayNotificationShown
-        });
-        ActivityLog.WriteSettingChange(setting, value);
-    }
+            CloseToTrayNotificationShown = _closeToTrayNotificationShown,
+            DefaultAction = _defaultAction,
+            LastReleaseCheckUtc = _lastReleaseCheckUtc,
+            LatestReleaseVersion = _latestReleaseVersion,
+            LatestReleaseUrl = _latestReleaseUrl,
+            CheckForUpdatesDaily = _checkForUpdatesDaily
+        };
 
     private void UpdateMuteIcon()
     {
@@ -1876,6 +2777,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         _freshnessTimer.Stop();
         _trayPulseTimer.Stop();
+        _smoothScrollTimer.Stop();
+        _releaseCheckTimer.Stop();
+        _sha256Queue.Writer.TryComplete();
+        _sha256Cancellation.Cancel();
         _watcher?.Dispose();
         _watcher = null;
         DisposeTrayIcon();
@@ -1896,6 +2801,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         public System.Windows.Media.Brush Brush { get; }
         public string Tooltip { get; }
     }
+
+    private sealed record Sha256WorkItem(DownloadEntry Entry, string Path);
 
     public enum FilterMode
     {

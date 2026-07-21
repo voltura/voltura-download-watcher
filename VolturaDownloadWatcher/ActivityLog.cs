@@ -67,6 +67,116 @@ internal static class ActivityLog
         return completion.Task;
     }
 
+    public static async System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<LoggedDownload>> ReadRecentDownloadsAsync(
+        int maximumCount)
+    {
+        await EnsureCurrentFileAsync().ConfigureAwait(false);
+        return await System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                using var stream = new System.IO.FileStream(
+                    LogPath,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete);
+                using var reader = new System.IO.StreamReader(stream, System.Text.Encoding.UTF8, true);
+                var lines = new System.Collections.Generic.List<string>();
+                while (reader.ReadLine() is { } line)
+                {
+                    lines.Add(line);
+                }
+
+                return ParseRecentDownloads(lines, maximumCount);
+            }
+            catch (System.Exception)
+            {
+                return System.Array.Empty<LoggedDownload>();
+            }
+        }).ConfigureAwait(false);
+    }
+
+    internal static System.Collections.Generic.IReadOnlyList<LoggedDownload> ParseRecentDownloads(
+        System.Collections.Generic.IEnumerable<string> lines,
+        int maximumCount)
+    {
+        var latestByName = new System.Collections.Generic.Dictionary<string, MutableLoggedDownload>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var line in lines)
+        {
+            var fields = line.Split('\t');
+            if (fields.Length < 5
+                || !System.DateTimeOffset.TryParse(
+                    fields[0],
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var occurredAt))
+            {
+                continue;
+            }
+
+            var activity = fields[1];
+            var source = fields[2];
+            var fileName = fields[3].Length >= 2 && fields[3][0] == '"' && fields[3][^1] == '"'
+                ? fields[3][1..^1]
+                : fields[3];
+            var sizeText = fields[4].Split(' ', 2)[0];
+            _ = long.TryParse(sizeText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var sizeBytes);
+
+            if (activity == "download" && DownloadPolicy.IsValidDownloadName(fileName))
+            {
+                latestByName[fileName] = new MutableLoggedDownload(fileName, occurredAt, System.Math.Max(0, sizeBytes));
+                continue;
+            }
+
+            if ((activity == "interaction:rename" || activity == "interaction:rename-overwrite")
+                && source == "ok")
+            {
+                var separator = fileName.IndexOf(" -> ", System.StringComparison.Ordinal);
+                if (separator > 0)
+                {
+                    var oldName = fileName[..separator];
+                    var newName = fileName[(separator + 4)..];
+                    if (latestByName.Remove(oldName, out var renamed) && DownloadPolicy.IsValidDownloadName(newName))
+                    {
+                        renamed.FileName = newName;
+                        renamed.SizeBytes = System.Math.Max(renamed.SizeBytes, sizeBytes);
+                        latestByName[newName] = renamed;
+                    }
+                }
+
+                continue;
+            }
+
+            if (activity == "delete" && latestByName.TryGetValue(fileName, out var deleted))
+            {
+                deleted.DeletedAt = occurredAt;
+                deleted.SizeBytes = System.Math.Max(deleted.SizeBytes, sizeBytes);
+            }
+
+            if (activity == "interaction:sha256-calculated"
+                && latestByName.TryGetValue(fileName, out var hashed)
+                && source.StartsWith("ok;sha256=", System.StringComparison.Ordinal))
+            {
+                var hash = source["ok;sha256=".Length..];
+                if (hash.Length == 64 && hash.All(System.Uri.IsHexDigit))
+                {
+                    hashed.Sha256 = hash.ToUpperInvariant();
+                }
+            }
+        }
+
+        return latestByName.Values
+            .OrderByDescending(download => download.DownloadedAt)
+            .Take(System.Math.Max(0, maximumCount))
+            .Select(download => new LoggedDownload(
+                download.FileName,
+                download.DownloadedAt,
+                download.SizeBytes,
+                download.DeletedAt,
+                download.Sha256))
+            .ToArray();
+    }
+
     private static void Write(string activity, string source, string fileName, long sizeBytes)
     {
         Queue.Writer.TryWrite(new LogRequest(
@@ -163,5 +273,21 @@ internal static class ActivityLog
     {
         public static LogRequest Ensure(System.Threading.Tasks.TaskCompletionSource? completion = null) =>
             new(System.DateTimeOffset.Now, null, null, null, 0, completion);
+    }
+
+    internal sealed record LoggedDownload(
+        string FileName,
+        System.DateTimeOffset DownloadedAt,
+        long SizeBytes,
+        System.DateTimeOffset? DeletedAt,
+        string? Sha256);
+
+    private sealed class MutableLoggedDownload(string fileName, System.DateTimeOffset downloadedAt, long sizeBytes)
+    {
+        public string FileName { get; set; } = fileName;
+        public System.DateTimeOffset DownloadedAt { get; } = downloadedAt;
+        public long SizeBytes { get; set; } = sizeBytes;
+        public System.DateTimeOffset? DeletedAt { get; set; }
+        public string? Sha256 { get; set; }
     }
 }

@@ -7,6 +7,20 @@ public sealed class AppSettings
     public DownloadSortMode SortMode { get; set; } = DownloadSortMode.Date;
     public bool SortDescending { get; set; } = true;
     public bool CloseToTrayNotificationShown { get; set; }
+    public DownloadDefaultAction DefaultAction { get; set; } = DownloadDefaultAction.OpenFile;
+    public System.DateTimeOffset? LastReleaseCheckUtc { get; set; }
+    public string? LatestReleaseVersion { get; set; }
+    public string? LatestReleaseUrl { get; set; }
+    public bool CheckForUpdatesDaily { get; set; } = true;
+}
+
+public enum DownloadDefaultAction
+{
+    OpenFile,
+    ShowInExplorer,
+    CopyAsPath,
+    CopyFile,
+    CutFile
 }
 
 public enum DownloadSortMode

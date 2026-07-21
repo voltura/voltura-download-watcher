@@ -84,7 +84,8 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <StackPanel Orientation="Horizontal">
-                <Path Data="M8,1 L15,14 H1 Z M8,5 V9 M8,11.5 V12"
+                <Path x:Name="StatusIcon"
+                      Data="M8,1 L15,14 H1 Z M8,5 V9 M8,11.5 V12"
                       Stroke="#FF5574"
                       StrokeThickness="1.4"
                       StrokeStartLineCap="Round"
@@ -93,7 +94,8 @@
                       Width="16"
                       Height="16"
                       Margin="0,0,8,0" />
-                <TextBlock Text="FILE OPERATION // INTERRUPTED"
+                <TextBlock x:Name="HeadingText"
+                           Text="FILE OPERATION // INTERRUPTED"
                            Foreground="#FF718A"
                            FontSize="10"
                            FontWeight="SemiBold"
