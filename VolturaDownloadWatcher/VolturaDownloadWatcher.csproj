@@ -9,7 +9,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <ApplicationIcon>Assets\voltura-download-watcher.ico</ApplicationIcon>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <AssemblyTitle>Voltura Download Watcher</AssemblyTitle>
     <Product>Voltura Download Watcher</Product>
     <Company>Voltura AB</Company>

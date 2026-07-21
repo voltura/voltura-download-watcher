@@ -107,6 +107,7 @@
 - Release comparison reads the previous `.csproj` through `git show`; strip a leading `0xFEFF` BOM before casting that content to XML.
 - GitHub Pages is built from the root `README.md` by `.github/workflows/pages.yml`. Do not create a second copy of site content; the workflow creates a temporary Jekyll `index.md` during CI.
 - `assets/branding/voltura-download-watcher-master.png` is the replaceable source for the README mark, application/form/installer ICO, and NSIS bitmap artwork. Keep it at least 256x256 with transparency and run `scripts/generate-branding.ps1` after replacement.
+- `assets/branding/voltura-download-watcher-tray-master.png` is the canonical neon source for the ICO's 16-48px Windows frames and therefore for normal, download-in-progress, and paused notification-area states. Keep its transparent exterior and high-contrast circular plate; the detailed master remains the 256px frame and installer artwork.
 - Runtime normal, download-in-progress, and paused notification-area icons must composite their state treatment over the embedded generated ICO. Do not reintroduce independently drawn legacy tray logos.
 - The screenshot window intentionally has no taskbar button. Capture it by enumerating the screenshot process's visible top-level window rather than relying on `Process.MainWindowHandle`.
 

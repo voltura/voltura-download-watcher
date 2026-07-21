@@ -1690,7 +1690,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 using (var sourceBitmap = sourceIcon.ToBitmap())
                 using (var attributes = new System.Drawing.Imaging.ImageAttributes())
                 {
-                    var opacity = isPaused ? 0.30f : isActive ? 1.0f : 0.68f;
+                    var opacity = isPaused ? 0.42f : isActive ? 1.0f : 0.96f;
                     var matrix = new System.Drawing.Imaging.ColorMatrix { Matrix33 = opacity };
                     attributes.SetColorMatrix(matrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
                     graphics.DrawImage(
