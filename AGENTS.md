@@ -92,4 +92,4 @@
 - Check `%APPDATA%\VolturaDownloadWatcher\startup.log` after startup or any apparent crash.
 - Manually verify mouse-wheel scrolling, scrollbar thumb dragging, window edge resizing, row open, context-menu delete, tray restore, tooltip layering, and long-filename marquee behavior.
 - Test with an empty Downloads folder, fewer than 20 files, more than 20 files, temporary browser files, a quickly removed `.torrent`, a deleted-and-recreated path, and watcher recovery.
-- Inspect generated PNG/BMP assets visually after branding changes. CI verifies deterministic icons and installer artwork but intentionally does not capture the interactive desktop screenshot.
+- Inspect generated PNG/BMP assets visually after branding changes. CI verifies the deterministic ICO plus NSIS bitmap dimensions/pixel format; `System.Drawing` BMP pixels differ between Windows PowerShell 5.1 and PowerShell 7, so CI must not binary-diff those BMPs. CI intentionally does not capture the interactive desktop screenshot.

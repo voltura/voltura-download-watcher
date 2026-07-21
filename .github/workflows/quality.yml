@@ -43,7 +43,22 @@ jobs:
         shell: pwsh
         run: |
           .\scripts\generate-branding.ps1 -SkipScreenshot
-          if (-not (git diff --quiet -- VolturaDownloadWatcher/Assets installer/assets)) {
-            git diff -- VolturaDownloadWatcher/Assets installer/assets
-            throw "Generated icon or NSIS artwork is out of date."
+          if (-not (git diff --quiet -- VolturaDownloadWatcher/Assets)) {
+            git diff -- VolturaDownloadWatcher/Assets
+            throw "Generated application icon is out of date."
+          }
+          Add-Type -AssemblyName System.Drawing
+          $checks = @(
+            @{ Path = ".\installer\assets\installer-header.bmp"; Width = 150; Height = 57 },
+            @{ Path = ".\installer\assets\installer-welcome.bmp"; Width = 164; Height = 314 }
+          )
+          foreach ($check in $checks) {
+            $bitmap = [System.Drawing.Bitmap]::FromFile($check.Path)
+            try {
+              if ($bitmap.Width -ne $check.Width -or $bitmap.Height -ne $check.Height -or $bitmap.PixelFormat -ne [System.Drawing.Imaging.PixelFormat]::Format24bppRgb) {
+                throw "$($check.Path) must be $($check.Width)x$($check.Height) 24-bit RGB."
+              }
+            } finally {
+              $bitmap.Dispose()
+            }
           }

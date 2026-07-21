@@ -628,7 +628,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             Padding = new System.Windows.Forms.Padding(1)
         };
 
-        var show = new System.Windows.Forms.ToolStripMenuItem("Show Voltura Download Watcher")
+        var show = new System.Windows.Forms.ToolStripMenuItem($"Show Voltura Download Watcher  v{GetDisplayVersion()}")
         {
             Font = new System.Drawing.Font(menuFont, System.Drawing.FontStyle.Bold),
             ForeColor = menu.ForeColor,
@@ -706,6 +706,22 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(exit);
         return menu;
+    }
+
+    private static string GetDisplayVersion()
+    {
+        var attribute = System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault();
+        var informationalVersion = attribute?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            return informationalVersion.Split('+', 2)[0];
+        }
+
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
     private static System.Drawing.Icon CreateTrayIcon(bool isActive)

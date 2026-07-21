@@ -51,6 +51,12 @@ NSIS is discovered from `PATH` or its standard Program Files locations. Packagin
 
 Outputs are written to `artifacts\publish`. Release details are in [docs/release.md](docs/release.md).
 
+## Trust And Distribution
+
+Voltura Download Watcher is freeware from Voltura AB and is open source under the [MIT License](LICENSE). It can be used without payment, registration, trial limits, or feature locks.
+
+Release binaries are currently not code-signed. Windows can therefore show an unknown-publisher or Microsoft Defender SmartScreen warning. Download only from the [official GitHub releases](https://github.com/voltura/voltura-download-watcher/releases/latest).
+
 ## Commands
 
 ```powershell
