@@ -42,8 +42,18 @@ function Get-ReleaseIfPresent
 {
     param([Parameter(Mandatory = $true)][string]$Tag)
 
-    $json = & gh release view $Tag --repo $script:repository --json tagName,isDraft,isPrerelease,targetCommitish,url 2>$null
-    if ($LASTEXITCODE -ne 0)
+    $previousErrorPreference = $ErrorActionPreference
+    try
+    {
+        $ErrorActionPreference = "SilentlyContinue"
+        $json = & gh release view $Tag --repo $script:repository --json tagName,isDraft,isPrerelease,targetCommitish,url 2>$null
+        $releaseViewExitCode = $LASTEXITCODE
+    }
+    finally
+    {
+        $ErrorActionPreference = $previousErrorPreference
+    }
+    if ($releaseViewExitCode -ne 0)
     {
         return $null
     }
