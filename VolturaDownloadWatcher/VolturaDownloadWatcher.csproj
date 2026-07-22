@@ -10,7 +10,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <ApplicationIcon>Assets\voltura-download-watcher.ico</ApplicationIcon>
     <AssemblyName>Voltura Download Watcher</AssemblyName>
-    <Version>0.1.5</Version>
+    <Version>0.1.6</Version>
     <AssemblyTitle>Voltura Download Watcher</AssemblyTitle>
     <Product>Voltura Download Watcher</Product>
     <Company>Voltura AB</Company>
