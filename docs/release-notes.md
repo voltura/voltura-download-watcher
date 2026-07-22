@@ -1,5 +1,11 @@
 ## v0.1.4
 
+- Keeps the app icon visible in the notification area instead of the hidden overflow area when Windows allows it.
+
+- Added a compact download notification panel above the notification area when the main panel is hidden, with quick file actions and configurable display time.
+- Reorganized startup, sound, deletion, default-action, and download-notification options under a new Settings menu.
+- Download notifications now close after a successful file action and remain available when an action is cancelled or fails.
+- Tooltips now prefer to appear above controls so the pointer does not cover their text.
 - Mouse wheels and two-finger touchpads now scroll the download list naturally while the pointer is anywhere over a download row.
 - Removed downloads, including short-lived torrent files, now remain in history like every other download until they become the oldest item pushed out by the 40-item limit.
 
