@@ -1,7 +1,10 @@
-## v0.1.4
+## v0.1.5
 
 - Keeps the app icon visible in the notification area whenever Windows allows it, and adds a compact notification panel above the notification area when the main panel is hidden. The notification includes quick file actions and a configurable display time.
 - Consolidates startup, sound, deletion, default-action, Open log, and download-notification options in a new Settings menu. Notifications close after a successful action but remain available when an action is cancelled or fails.
+
+## v0.1.4
+
 - Makes the interface easier to use with tooltips that prefer the space above their controls and natural mouse-wheel and two-finger touchpad scrolling anywhere over the download list.
 - Keeps removed downloads—including short-lived files—in the 40-item history until they are displaced by newer entries.
 
