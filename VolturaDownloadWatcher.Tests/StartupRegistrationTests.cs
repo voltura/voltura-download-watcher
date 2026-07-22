@@ -15,6 +15,7 @@ public sealed class StartupRegistrationTests
     {
         var settings = new AppSettings();
 
+        Assert.True(settings.StartMinimized);
         Assert.True(settings.IsMuted);
         Assert.True(settings.DeleteToRecycleBin);
         Assert.Equal(DownloadSortMode.Date, settings.SortMode);

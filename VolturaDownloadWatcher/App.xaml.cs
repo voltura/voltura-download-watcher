@@ -58,12 +58,25 @@ public partial class App : System.Windows.Application
             _mainWindow.Loaded += (_, _) =>
             {
                 _mainWindow.ShowInTaskbar = false;
+                if (_mainWindow.StartMinimized)
+                {
+                    _mainWindow.Hide();
+                    return;
+                }
+
                 _mainWindow.WindowState = System.Windows.WindowState.Normal;
                 _mainWindow.Show();
                 _mainWindow.Activate();
                 _mainWindow.Topmost = true;
             };
             _mainWindow.Show();
+            if (_mainWindow.StartMinimized)
+            {
+                ActivityLog.WriteLifecycle("start-minimized");
+                WriteStartupLog("Startup OK");
+                return;
+            }
+
             _mainWindow.WindowState = System.Windows.WindowState.Normal;
             _mainWindow.Activate();
             _ = _mainWindow.Dispatcher.BeginInvoke(new System.Action(() =>

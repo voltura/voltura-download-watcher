@@ -1,3 +1,9 @@
+## v0.1.6
+
+- Adds a default-on Start minimized option so the splash screen is shown while the main panel starts hidden in the notification area.
+- Shows release-check results in a nearby themed dialog, with a direct button for downloading an available update.
+- Keeps the running version visible as a neon header at the top of the About menu.
+
 ## v0.1.5
 
 - Keeps the app icon visible in the notification area whenever Windows allows it, and adds a compact notification panel above the notification area when the main panel is hidden. The notification includes quick file actions and a configurable display time.

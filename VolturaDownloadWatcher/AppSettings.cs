@@ -2,6 +2,7 @@ namespace VolturaDownloadWatcher;
 
 public sealed class AppSettings
 {
+    public bool StartMinimized { get; set; } = true;
     public bool IsMuted { get; set; } = true;
     public bool DeleteToRecycleBin { get; set; } = true;
     public DownloadSortMode SortMode { get; set; } = DownloadSortMode.Date;

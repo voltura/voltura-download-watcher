@@ -47,6 +47,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private System.Drawing.Icon? _trayActiveIcon;
     private System.Drawing.Icon? _trayPausedIcon;
     private System.Windows.Forms.ToolStripMenuItem? _playSoundMenuItem;
+    private System.Windows.Forms.ToolStripMenuItem? _startMinimizedMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _deleteToRecycleBinMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _monitoringMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _aboutMenuItem;
@@ -56,6 +57,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private DownloadNotificationWindow? _downloadNotificationWindow;
     private readonly string _sparkSoundPath;
     private bool _isMuted;
+    private bool _startMinimized;
     private System.Windows.Controls.ToolTip? _activeToolTip;
     private bool _watcherRecoveryQueued;
     private bool _trayPulseIsBright;
@@ -78,6 +80,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private long _nextSortPinOrder = System.DateTime.UtcNow.Ticks;
     private FilterMode _activeFilter = FilterMode.All;
 
+    public bool StartMinimized => _startMinimized && !_isScreenshotMode;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -95,6 +99,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ActivityLog.EnsureCurrentFile();
         }
         var settings = LoadSettings();
+        _startMinimized = settings.StartMinimized;
         _isMuted = settings.IsMuted;
         _deleteToRecycleBin = settings.DeleteToRecycleBin;
         _closeToTrayNotificationShown = settings.CloseToTrayNotificationShown;
@@ -1158,7 +1163,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             Padding = new System.Windows.Forms.Padding(1)
         };
 
-        var show = new System.Windows.Forms.ToolStripMenuItem($"Show Voltura Download Watcher  v{GetDisplayVersion()}")
+        var show = new System.Windows.Forms.ToolStripMenuItem("Show Voltura Download Watcher")
         {
             Font = new System.Drawing.Font(menuFont, System.Drawing.FontStyle.Bold),
             ForeColor = menu.ForeColor,
@@ -1206,6 +1211,22 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ActivityLog.WriteSettingChange(
                 "start-with-windows",
                 startWithWindows.Checked.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        };
+
+        _startMinimizedMenuItem = new System.Windows.Forms.ToolStripMenuItem("Start minimized")
+        {
+            CheckOnClick = false,
+            Checked = _startMinimized,
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        _startMinimizedMenuItem.Click += (_, _) =>
+        {
+            _startMinimized = !_startMinimized;
+            _startMinimizedMenuItem.Checked = _startMinimized;
+            SaveCurrentSettings(
+                "start-minimized",
+                _startMinimized.ToString(System.Globalization.CultureInfo.InvariantCulture));
         };
 
         _playSoundMenuItem = new System.Windows.Forms.ToolStripMenuItem("Play sound on download")
@@ -1382,6 +1403,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         openLog.Click += (_, _) => Dispatcher.Invoke(() => OpenActivityLog_Click(this, new System.Windows.RoutedEventArgs()));
 
         settingsMenu.DropDownItems.Add(startWithWindows);
+        settingsMenu.DropDownItems.Add(_startMinimizedMenuItem);
         settingsMenu.DropDownItems.Add(_playSoundMenuItem);
         settingsMenu.DropDownItems.Add(_deleteToRecycleBinMenuItem);
         settingsMenu.DropDownItems.Add(defaultActionMenu);
@@ -1405,6 +1427,12 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ShowImageMargin = false,
             Padding = menu.Padding
         };
+        var aboutHeader = new System.Windows.Forms.ToolStripMenuItem($"Voltura Download Watcher v{GetDisplayVersion()}")
+        {
+            Font = new System.Drawing.Font(menuFont, System.Drawing.FontStyle.Bold),
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
         var productPage = new System.Windows.Forms.ToolStripMenuItem("Product page")
         {
             ForeColor = menu.ForeColor,
@@ -1413,7 +1441,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         productPage.Click += (_, _) => Dispatcher.Invoke(() => OpenWebPage(
             ReleaseUpdateChecker.ProductPageUrl,
             "open-product-page"));
-        _checkReleaseMenuItem = new System.Windows.Forms.ToolStripMenuItem("Check for new release")
+        _checkReleaseMenuItem = new System.Windows.Forms.ToolStripMenuItem("Check for new version now")
         {
             ForeColor = menu.ForeColor,
             Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
@@ -1453,6 +1481,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
                 ? ReleaseUpdateChecker.LatestReleasePageUrl
                 : _latestReleaseUrl,
             "open-latest-release"));
+        _aboutMenuItem.DropDownItems.Add(aboutHeader);
         _aboutMenuItem.DropDownItems.Add(productPage);
         _aboutMenuItem.DropDownItems.Add(_checkReleaseMenuItem);
         _aboutMenuItem.DropDownItems.Add(_dailyUpdateChecksMenuItem);
@@ -1569,17 +1598,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private void ShowReleaseCheckResult(System.Drawing.Point? invocationPoint)
     {
         var runningVersion = GetDisplayVersion();
-        var message = _updateAvailable
-            ? $"Version {_latestReleaseVersion} is available. Use About > Download v{_latestReleaseVersion} to open the release page."
-            : $"Version {runningVersion} is current. No newer published release was found.";
-        var heading = _updateAvailable
-            ? "RELEASE SIGNAL // UPDATE AVAILABLE"
-            : "RELEASE SIGNAL // SYSTEM CURRENT";
-        var dialog = new NoticeDialog(
-            message,
-            heading,
-            _updateAvailable ? NoticeDialogTone.Update : NoticeDialogTone.Success,
-            invocationPoint);
+        var dialog = new ReleaseCheckResultDialog(
+            _updateAvailable,
+            runningVersion,
+            _latestReleaseVersion,
+            invocationPoint ?? System.Windows.Forms.Cursor.Position);
         if (IsVisible)
         {
             dialog.Owner = this;
@@ -1595,6 +1618,14 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             0,
             _updateAvailable ? "update-available" : "current");
         dialog.ShowDialog();
+        if (dialog.DownloadLatestReleaseRequested)
+        {
+            OpenWebPage(
+                string.IsNullOrWhiteSpace(_latestReleaseUrl)
+                    ? ReleaseUpdateChecker.LatestReleasePageUrl
+                    : _latestReleaseUrl,
+                "open-latest-release");
+        }
     }
 
     private void UpdateReleaseMenuState()
@@ -1611,12 +1642,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             _checkReleaseMenuItem.Enabled = !_releaseCheckInProgress;
             _checkReleaseMenuItem.Text = _releaseCheckInProgress
-                ? "Checking for new release..."
-                : _updateAvailable && !string.IsNullOrWhiteSpace(_latestReleaseVersion)
-                    ? $"! Update available: v{_latestReleaseVersion}"
-                    : !string.IsNullOrWhiteSpace(_latestReleaseVersion)
-                        ? $"Check for new release  [v{_latestReleaseVersion} current]"
-                        : "Check for new release";
+                ? "Checking for new version..."
+                : "Check for new version now";
             _checkReleaseMenuItem.ForeColor = _updateAvailable
                 ? System.Drawing.Color.FromArgb(255, 204, 51)
                 : System.Drawing.Color.FromArgb(95, 210, 122);
@@ -2834,6 +2861,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private AppSettings CreateCurrentSettings() =>
         new()
         {
+            StartMinimized = _startMinimized,
             IsMuted = _isMuted,
             DeleteToRecycleBin = _deleteToRecycleBin,
             SortMode = _sortMode,

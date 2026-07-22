@@ -38,6 +38,16 @@ internal sealed class CyberpunkTrayMenuRenderer : System.Windows.Forms.ToolStrip
         base.OnRenderArrow(e);
     }
 
+    protected override void OnRenderItemText(System.Windows.Forms.ToolStripItemTextRenderEventArgs e)
+    {
+        if (!e.Item.Enabled)
+        {
+            e.TextColor = ElectricGreen;
+        }
+
+        base.OnRenderItemText(e);
+    }
+
     protected override void OnRenderItemCheck(System.Windows.Forms.ToolStripItemImageRenderEventArgs e)
     {
         const int size = 12;
