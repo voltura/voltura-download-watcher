@@ -9,7 +9,7 @@ public sealed class DialogPlacementTests
             new System.Drawing.Rectangle(1920, 100, 2560, 1400),
             new System.Drawing.Size(400, 800));
 
-        Xunit.Assert.Equal(new System.Drawing.Point(4080, 400), placement);
+        Xunit.Assert.Equal(new System.Drawing.Point(4080, 280), placement);
     }
 
     [Xunit.Fact]

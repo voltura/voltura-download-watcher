@@ -2,12 +2,14 @@ namespace VolturaDownloadWatcher;
 
 public static class DialogPlacement
 {
+    private const int MainWindowVerticalOffset = 120;
+
     public static System.Drawing.Point CalculateRightCenter(
         System.Drawing.Rectangle workingArea,
         System.Drawing.Size windowSize) =>
         new(
             workingArea.Right - windowSize.Width,
-            workingArea.Top + ((workingArea.Height - windowSize.Height) / 2));
+            workingArea.Top + ((workingArea.Height - windowSize.Height) / 2) - MainWindowVerticalOffset);
 
     public static System.Drawing.Point CalculateNear(
         System.Drawing.Point anchor,

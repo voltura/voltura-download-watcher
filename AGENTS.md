@@ -118,6 +118,8 @@
 
 ## Verification
 
+- Mandatory: when a change is complete, start the app and leave it running.
+- Before building or validating, kill any running `Voltura Download Watcher.exe` instance so it cannot lock the binaries; after the work is complete, launch the freshly built executable and leave it running.
 - Build the WPF project after changes.
 - If a change affects UI layout or animation, recheck the XAML for missing handlers or resource names.
 - After rebuilding, launch the executable and verify it remains alive and responsive for several seconds.

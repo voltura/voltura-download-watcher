@@ -12,6 +12,7 @@ public sealed class AppSettings
     public string? LatestReleaseVersion { get; set; }
     public string? LatestReleaseUrl { get; set; }
     public bool CheckForUpdatesDaily { get; set; } = true;
+    public int DownloadNotificationDurationSeconds { get; set; } = DownloadNotificationDurationPolicy.DefaultSeconds;
 }
 
 public enum DownloadDefaultAction

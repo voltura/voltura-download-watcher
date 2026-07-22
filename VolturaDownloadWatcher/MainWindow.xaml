@@ -82,6 +82,8 @@
             <Setter Property="FontFamily" Value="Bahnschrift SemiCondensed" />
             <Setter Property="FontSize" Value="9" />
             <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="Placement" Value="Top" />
+            <Setter Property="VerticalOffset" Value="-6" />
             <Setter Property="ToolTipService.InitialShowDelay" Value="120" />
             <Setter Property="Template">
                 <Setter.Value>

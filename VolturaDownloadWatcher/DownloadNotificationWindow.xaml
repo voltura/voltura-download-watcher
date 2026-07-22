@@ -1,0 +1,242 @@
+<Window x:Class="VolturaDownloadWatcher.DownloadNotificationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New download"
+        Width="286"
+        Height="108"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="Manual"
+        FontFamily="Bahnschrift SemiCondensed"
+        MouseEnter="Panel_Interacted"
+        GotKeyboardFocus="Panel_Interacted"
+        PreviewMouseDown="Panel_Interacted"
+        Closing="Window_Closing">
+    <Window.Resources>
+        <Style TargetType="ToolTip">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Background" Value="#F20A0F0C" />
+            <Setter Property="Foreground" Value="#7CFF9A" />
+            <Setter Property="BorderBrush" Value="#6B4BFF7A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="FontFamily" Value="Bahnschrift SemiCondensed" />
+            <Setter Property="FontSize" Value="9" />
+            <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="Placement" Value="Top" />
+            <Setter Property="VerticalOffset" Value="-6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="HeaderActionButton" TargetType="Button">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Background" Value="#B008110B" />
+            <Setter Property="BorderBrush" Value="#485EBB70" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Shell"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                Opacity="{TemplateBinding Opacity}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shell" Property="Background" Value="#E0142017" />
+                                <Setter TargetName="Shell" Property="BorderBrush" Value="#B07CFF9A" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shell" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.24" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="HeaderActionIcon" TargetType="Path">
+            <Setter Property="Stroke" Value="#7CFF9A" />
+            <Setter Property="StrokeThickness" Value="1.45" />
+            <Setter Property="Fill" Value="Transparent" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="Width" Value="13" />
+            <Setter Property="Height" Value="13" />
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="PanelShell"
+            Background="#FA070C09"
+            BorderBrush="#B05CD77A"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="9">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <TextBlock Text="DOWNLOAD // REGISTERED"
+                           Foreground="#65C97B"
+                           FontSize="7.5"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding ExistsNow}"
+                            Click="CopyFile_Click"
+                            ToolTip="Copy file">
+                        <Path Data="M6,3 H15 V12 H6 Z M3,6 H5 V14 H12 V13" Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding ExistsNow}"
+                            Click="CopyAsPath_Click"
+                            ToolTip="Copy as Path">
+                        <Path Data="M4,3 H12 V5 H14 V15 H6 V13 H4 Z M7,7 H11 M7,10 H11 M2,6 H5 V12 H2 Z" Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding ExistsNow}"
+                            Click="CutFile_Click"
+                            ToolTip="Cut file">
+                        <Path Data="M4,4 A2,2 0 1 0 4,8 A2,2 0 1 0 4,4 M4,10 A2,2 0 1 0 4,14 A2,2 0 1 0 4,10 M6,7 L14,13 M6,11 L14,5" Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding ExistsNow}"
+                            Click="Rename_Click"
+                            ToolTip="Rename file">
+                        <Path Data="M4,13 L5,9 L12,2 L15,5 L8,12 Z M10.5,3.5 L13.5,6.5 M3,15 H15" Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding IsSha256Available}"
+                            Click="CopySha256_Click"
+                            ToolTip="{Binding Sha256ActionToolTip}"
+                            ToolTipService.ShowOnDisabled="True">
+                        <Path Data="M6,2 L5,15 M11,2 L10,15 M2,7 H14 M2,11 H14"
+                              StrokeThickness="1.65"
+                              Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            IsEnabled="{Binding ExistsNow}"
+                            Click="Delete_Click"
+                            ToolTip="Delete file">
+                        <Path Data="M3,5 H15 M6,5 V3 H12 V5 M5,7 L6,15 H12 L13,7 M8,8 V13 M10,8 V13"
+                              Stroke="#FF5874"
+                              StrokeThickness="1.7"
+                              Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                    <Button Style="{StaticResource HeaderActionButton}"
+                            Click="Dismiss_Click"
+                            ToolTip="Dismiss">
+                        <Path Data="M3,3 L13,13 M13,3 L3,13"
+                              Stroke="#8AAF92"
+                              Style="{StaticResource HeaderActionIcon}" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Margin="0,9,0,0"
+                    Padding="7,7"
+                    CornerRadius="7"
+                    Background="#B009110C"
+                    BorderBrush="#4D54B96B"
+                    BorderThickness="1"
+                    Tag="{Binding}"
+                    Cursor="Hand"
+                    PreviewMouseLeftButtonUp="DownloadRow_Click">
+                <Grid>
+                    <Path Data="{Binding FileTypeGlyph}"
+                          Stroke="{Binding DisplayBrush}"
+                          StrokeThickness="1.15"
+                          Fill="Transparent"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round"
+                          Stretch="Uniform"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top"
+                          Margin="0,1,0,0"
+                          Width="12"
+                          Height="12" />
+                    <StackPanel Margin="17,0,19,0">
+                        <TextBlock Text="{Binding FileName}"
+                                   Foreground="{Binding DisplayBrush}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" />
+                        <TextBlock Text="{Binding DownloadedMetaText}"
+                                   Foreground="#6EA37A"
+                                   FontSize="7"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+                    <Path Data="M4,10 L8,10 L11,7 L11,13 L8,10 L4,10 Z M12,8 C14,8.8 14,11.2 12,12"
+                          Stroke="#7CFF9A"
+                          StrokeThickness="1.1"
+                          Fill="Transparent"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center"
+                          Width="14"
+                          Height="14">
+                        <Path.Style>
+                            <Style TargetType="Path">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ExistsNow}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Path.Style>
+                    </Path>
+                    <Path Data="{Binding RemovalGlyph}"
+                          Stroke="{Binding RemovalNoteBrush}"
+                          StrokeThickness="1.1"
+                          Fill="Transparent"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          StrokeLineJoin="Round"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Center"
+                          Width="14"
+                          Height="14" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
