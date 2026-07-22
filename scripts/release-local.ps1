@@ -293,7 +293,8 @@ try
     Invoke-ReleasePackaging -ReleaseVersion $targetVersion
 
     $allowedChanges = Assert-ExpectedTrackedChanges
-    Invoke-Checked git add -- $allowedChanges
+    $gitAddArguments = @("add", "--") + @($allowedChanges)
+    Invoke-Checked -Command git -Arguments $gitAddArguments
     git diff --cached --quiet
     $hasReleaseChanges = $LASTEXITCODE -ne 0
     if ($hasReleaseChanges)
