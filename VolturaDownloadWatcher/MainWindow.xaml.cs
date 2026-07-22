@@ -1374,11 +1374,19 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         notificationMenu.DropDownItems.Add(customNotification);
         UpdateNotificationChecks();
 
+        var openLog = new System.Windows.Forms.ToolStripMenuItem("Open log")
+        {
+            ForeColor = menu.ForeColor,
+            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
+        };
+        openLog.Click += (_, _) => Dispatcher.Invoke(() => OpenActivityLog_Click(this, new System.Windows.RoutedEventArgs()));
+
         settingsMenu.DropDownItems.Add(startWithWindows);
         settingsMenu.DropDownItems.Add(_playSoundMenuItem);
         settingsMenu.DropDownItems.Add(_deleteToRecycleBinMenuItem);
         settingsMenu.DropDownItems.Add(defaultActionMenu);
         settingsMenu.DropDownItems.Add(notificationMenu);
+        settingsMenu.DropDownItems.Add(openLog);
 
         _aboutMenuItem = new System.Windows.Forms.ToolStripMenuItem(_updateAvailable ? "! About" : "About")
         {
@@ -1451,13 +1459,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _aboutMenuItem.DropDownItems.Add(_downloadReleaseMenuItem);
         UpdateReleaseMenuState();
 
-        var openLog = new System.Windows.Forms.ToolStripMenuItem("Open log")
-        {
-            ForeColor = menu.ForeColor,
-            Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
-        };
-        openLog.Click += (_, _) => Dispatcher.Invoke(() => OpenActivityLog_Click(this, new System.Windows.RoutedEventArgs()));
-
         var openDownloads = new System.Windows.Forms.ToolStripMenuItem("Open Downloads folder")
         {
             ForeColor = menu.ForeColor,
@@ -1503,7 +1504,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         menu.Items.Add(_monitoringMenuItem);
         menu.Items.Add(settingsMenu);
         menu.Items.Add(openDownloads);
-        menu.Items.Add(openLog);
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add(deleteAllDownloads);
         menu.Items.Add(cleanupDeletedFiles);
