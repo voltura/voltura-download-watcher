@@ -3,7 +3,7 @@ namespace VolturaDownloadWatcher.Tests;
 public sealed class DownloadHistoryPolicyTests
 {
     [Xunit.Fact]
-    public void SelectEvictionCandidate_PrefersOldestDeletedEntry()
+    public void SelectEvictionCandidate_TreatsDeletedEntriesLikeEveryOtherDownload()
     {
         var oldestLive = CreateEntry("old-live.txt", 1, existsNow: true);
         var newerDeleted = CreateEntry("deleted.torrent", 2, existsNow: false);
@@ -12,7 +12,7 @@ public sealed class DownloadHistoryPolicyTests
         var selected = DownloadHistoryPolicy.SelectEvictionCandidate(
             new[] { newestLive, newerDeleted, oldestLive });
 
-        Xunit.Assert.Same(newerDeleted, selected);
+        Xunit.Assert.Same(oldestLive, selected);
     }
 
     [Xunit.Fact]
@@ -24,6 +24,21 @@ public sealed class DownloadHistoryPolicyTests
         var selected = DownloadHistoryPolicy.SelectEvictionCandidate(new[] { newest, oldest });
 
         Xunit.Assert.Same(oldest, selected);
+    }
+
+    [Xunit.Fact]
+    public void SelectEvictionCandidate_KeepsEarlierDeletedTorrentWhenItIsNotOldest()
+    {
+        var oldest = CreateEntry("oldest.zip", 1, existsNow: true);
+        var firstDeletedTorrent = CreateEntry("first.torrent", 2, existsNow: false);
+        var secondDeletedTorrent = CreateEntry("second.torrent", 3, existsNow: false);
+
+        var selected = DownloadHistoryPolicy.SelectEvictionCandidate(
+            new[] { secondDeletedTorrent, firstDeletedTorrent, oldest });
+
+        Xunit.Assert.Same(oldest, selected);
+        Xunit.Assert.NotSame(firstDeletedTorrent, selected);
+        Xunit.Assert.NotSame(secondDeletedTorrent, selected);
     }
 
     private static DownloadEntry CreateEntry(string fileName, int minute, bool existsNow)

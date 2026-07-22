@@ -2,11 +2,6 @@ name: Publish Voltura Download Watcher release
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - VolturaDownloadWatcher/VolturaDownloadWatcher.csproj
 
 permissions:
   contents: write

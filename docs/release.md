@@ -1,28 +1,50 @@
-# Release
+# Local Release
 
-This repository uses PowerShell and GitHub Actions; Node.js and npm are not required.
+Releases are built on the maintainer's Windows machine. The preserved GitHub release workflow is disabled to avoid hosted-runner charges.
 
-## Prepare a version
+## Prerequisites
+
+- Clean `main` worktree with no merge or rebase in progress
+- Local branch not behind `origin/main`
+- .NET 10 SDK
+- NSIS with `makensis.exe`
+- Git and an authenticated GitHub CLI with repository and workflow access
+- GitHub release workflow in the `disabled_manually` state
+
+## End-user notes
+
+Maintain `docs/release-notes.md` newest first. Each stable version uses one heading such as `## v0.1.4`, followed by short, non-technical bullets about features and fixes users can observe. A release may contain as many bullets as its user-visible changes require, but each feature description must stay brief and high-level. Do not include tests, refactors, build plumbing, workflow changes, or internal implementation details.
+
+The release command refuses to change the project version if the target section is missing, duplicated, or empty.
+
+## One-command release
 
 ```powershell
-.\scripts\prepare-release.ps1 0.2.0
-dotnet test .\VolturaDownloadWatcher.Tests\VolturaDownloadWatcher.Tests.csproj -c Release
-.\scripts\package-win.ps1
+.\scripts\release-local.ps1
 ```
 
-For the normal stable sequence, `.\scripts\bump-release.ps1` advances the version as an odometer: `0.1.9` becomes `0.2.0`, and `0.9.9` becomes `1.0.0`. Use `prepare-release.ps1` when choosing an explicit or prerelease version.
+The default command advances the existing odometer version, for example `0.1.9` to `0.2.0`. An explicit stable version is also supported:
 
-Review, commit, and push the version change to `main`. The release workflow derives `v<version>` from the project and creates a draft GitHub release after tests and packaging. `workflow_dispatch` can retry the prepared version.
+```powershell
+.\scripts\release-local.ps1 -Version 0.2.0
+```
 
-## Installer outputs
+The command validates its environment, regenerates all branding including the safe screenshot, runs release-tool and .NET tests, builds both installers, commits and pushes the version, rebuilds from the final commit, audits a draft release, and publishes it as Latest. A matching pending version or draft is resumed automatically after an interrupted attempt.
 
-- `VolturaDownloadWatcher-Setup-<version>-win-x64.exe` is the small framework-dependent installer. It downloads the signed Microsoft .NET 10 Windows Desktop runtime installer only when required.
-- `VolturaDownloadWatcher-Setup-<version>-win-x64-full.exe` is self-contained and works offline.
+Installer outputs remain under `artifacts\publish`:
 
-Both installers are per-user, create Start Menu and Apps & Features entries, and default Start with Windows and download sound to off on clean installs.
+- `VolturaDownloadWatcher-Setup-<version>-win-x64.exe` is the compact framework-dependent installer.
+- `VolturaDownloadWatcher-Setup-<version>-win-x64-full.exe` is the self-contained offline installer.
 
-## GitHub Actions
+The command prints both SHA-256 hashes after publication. Release binaries are intentionally unsigned, so Windows may show an unknown-publisher or SmartScreen warning.
 
-The Windows workflow installs .NET 10 when needed and NSIS 3.12 through Chocolatey. It rejects an existing tag, creates a new tag at the workflow commit, and opens a draft GitHub release containing both installers.
+## Preserved GitHub workflow
 
-Draft notes include the same optional [Ko-fi](https://ko-fi.com/voltura) and [PayPal](https://www.paypal.me/voltura) support links used by Voltura Air. Review and expand those notes before publishing.
+The workflow file remains available for future use but has no push trigger and is disabled remotely. To deliberately restore hosted release builds:
+
+```powershell
+gh workflow enable release.yml
+gh workflow run release.yml
+```
+
+Disable it again after use with `gh workflow disable release.yml`.

@@ -79,21 +79,21 @@ dotnet test .\VolturaDownloadWatcher.Tests\VolturaDownloadWatcher.Tests.csproj -
 # Build both local NSIS installers
 .\scripts\package-win.ps1
 
-# Advance 0.1.9 -> 0.2.0, or prepare an explicit version
-.\scripts\bump-release.ps1
-.\scripts\prepare-release.ps1 0.2.0
+# Complete local release: bump, test, build, push, upload, and publish as Latest
+.\scripts\release-local.ps1
 
-# Push a prepared version; GitHub Actions creates a draft release
-git add .
-git commit -m "Release 0.2.0"
-git push origin main
-
-# Optional manual retry and draft inspection
-gh workflow run release.yml
-gh release list --repo voltura/voltura-download-watcher
+# Release an explicit stable version instead of the automatic odometer bump
+.\scripts\release-local.ps1 -Version 0.2.0
 ```
 
-Automatic releases only react to a changed `<Version>` in `VolturaDownloadWatcher.csproj`. GitHub Actions tests the app, builds the small and full NSIS installers, and leaves the release as a draft for manual notes and publication.
+The local release command requires a clean `main` branch, .NET 10, NSIS, Git, and an authenticated GitHub CLI. It regenerates the privacy-safe screenshot and branding, runs tests, builds both installers, commits and pushes the version, audits a draft, and publishes it as Latest. If publication is interrupted after the release commit or draft is created, rerun the same command to resume that version rather than bumping again.
+
+End-user notes are maintained in [docs/release-notes.md](docs/release-notes.md). The paid release workflow is preserved but disabled; re-enable and dispatch it only when intentionally returning to GitHub-hosted builds:
+
+```powershell
+gh workflow enable release.yml
+gh workflow run release.yml
+```
 
 The Pages workflow publishes this README as the project site at `https://voltura.github.io/voltura-download-watcher/`; no separate website source or hosting is required.
 

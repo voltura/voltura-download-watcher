@@ -526,9 +526,6 @@
                               Background="Transparent"
                               BorderThickness="0"
                               Cursor="Hand"
-                              PreviewMouseWheel="DownloadsList_PreviewMouseWheel"
-                              ScrollViewer.CanContentScroll="False"
-                              ScrollViewer.PanningMode="VerticalOnly"
                               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                               ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListView.Resources>
@@ -808,38 +805,33 @@
                                               Opacity="0.86"
                                               IsHitTestVisible="False" />
                                         <StackPanel Margin="14,0,0,0">
-                                            <Border Background="Transparent"
+                                            <Border x:Name="FilenameViewport"
+                                                    Background="Transparent"
                                                     ClipToBounds="True"
                                                     HorizontalAlignment="Stretch"
                                                     Margin="0,0,4,0">
-                                                <ScrollViewer x:Name="FilenameViewport"
-                                                              HorizontalScrollBarVisibility="Hidden"
-                                                              VerticalScrollBarVisibility="Disabled"
-                                                              HorizontalContentAlignment="Left"
-                                                              ClipToBounds="True">
-                                                    <TextBlock x:Name="FilenameText"
-                                                               Text="{Binding FileName}"
-                                                               FontFamily="Bahnschrift SemiCondensed"
-                                                               FontSize="9"
-                                                               FontWeight="SemiBold"
-                                                               TextWrapping="NoWrap"
-                                                               HorizontalAlignment="Left"
-                                                               RenderTransformOrigin="0,0.5">
-                                                        <TextBlock.Style>
-                                                            <Style TargetType="TextBlock">
-                                                                <Setter Property="Foreground" Value="{Binding DisplayBrush}" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding ElementName=RowShell, Path=IsMouseOver}" Value="True">
-                                                                        <Setter Property="Foreground" Value="#E4FFEA" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </TextBlock.Style>
-                                                        <TextBlock.RenderTransform>
-                                                            <TranslateTransform />
-                                                        </TextBlock.RenderTransform>
-                                                    </TextBlock>
-                                                </ScrollViewer>
+                                                <TextBlock x:Name="FilenameText"
+                                                           Text="{Binding FileName}"
+                                                           FontFamily="Bahnschrift SemiCondensed"
+                                                           FontSize="9"
+                                                           FontWeight="SemiBold"
+                                                           TextWrapping="NoWrap"
+                                                           HorizontalAlignment="Left"
+                                                           RenderTransformOrigin="0,0.5">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{Binding DisplayBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ElementName=RowShell, Path=IsMouseOver}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#E4FFEA" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                    <TextBlock.RenderTransform>
+                                                        <TranslateTransform />
+                                                    </TextBlock.RenderTransform>
+                                                </TextBlock>
                                             </Border>
                                             <TextBlock Text="{Binding DownloadedMetaText}"
                                                        Foreground="#6EA37A"

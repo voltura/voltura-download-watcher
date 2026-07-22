@@ -39,7 +39,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         System.StringComparison.Ordinal);
     private readonly System.Windows.Threading.DispatcherTimer _freshnessTimer;
     private readonly System.Windows.Threading.DispatcherTimer _trayPulseTimer;
-    private readonly System.Windows.Threading.DispatcherTimer _smoothScrollTimer;
     private readonly System.Windows.Threading.DispatcherTimer _releaseCheckTimer;
     private System.IO.FileSystemWatcher? _watcher;
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
@@ -69,9 +68,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private string? _latestReleaseUrl;
     private bool _checkForUpdatesDaily;
     private DownloadDefaultAction _defaultAction;
-    private System.Windows.Controls.ScrollViewer? _downloadsScrollViewer;
-    private double _smoothScrollTarget;
-    private System.DateTime _lastListScrollAt = System.DateTime.MinValue;
     private int _exitLogged;
     private DownloadSortMode _sortMode;
     private bool _sortDescending;
@@ -153,13 +149,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             Interval = System.TimeSpan.FromHours(1)
         };
         _releaseCheckTimer.Tick += async (_, _) => await CheckForReleaseAsync(force: false);
-        _smoothScrollTimer = new System.Windows.Threading.DispatcherTimer(
-            System.Windows.Threading.DispatcherPriority.Render,
-            Dispatcher)
-        {
-            Interval = System.TimeSpan.FromMilliseconds(16)
-        };
-        _smoothScrollTimer.Tick += SmoothScrollTimer_Tick;
         Activated += (_, _) => EnforceTopmost();
     }
 
@@ -316,59 +305,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private void Window_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         System.Windows.Input.Mouse.OverrideCursor = null;
-    }
-
-    private void DownloadsList_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
-    {
-        if (sender is not System.Windows.Controls.ListView listView)
-        {
-            return;
-        }
-
-        _downloadsScrollViewer ??= FindNamedVisualChild<System.Windows.Controls.ScrollViewer>(listView, "PART_ScrollViewer");
-        _lastListScrollAt = System.DateTime.UtcNow;
-        if (_downloadsScrollViewer is null)
-        {
-            return;
-        }
-
-        e.Handled = true;
-        if (_downloadsScrollViewer.ScrollableHeight <= 0)
-        {
-            return;
-        }
-
-        if (!_smoothScrollTimer.IsEnabled)
-        {
-            _smoothScrollTarget = _downloadsScrollViewer.VerticalOffset;
-        }
-
-        const double pixelsPerWheelNotch = 36;
-        _smoothScrollTarget = System.Math.Clamp(
-            _smoothScrollTarget - ((double)e.Delta / 120) * pixelsPerWheelNotch,
-            0,
-            _downloadsScrollViewer.ScrollableHeight);
-        _smoothScrollTimer.Start();
-    }
-
-    private void SmoothScrollTimer_Tick(object? sender, System.EventArgs e)
-    {
-        if (_downloadsScrollViewer is null)
-        {
-            _smoothScrollTimer.Stop();
-            return;
-        }
-
-        var distance = _smoothScrollTarget - _downloadsScrollViewer.VerticalOffset;
-        if (System.Math.Abs(distance) < 0.35)
-        {
-            _downloadsScrollViewer.ScrollToVerticalOffset(_smoothScrollTarget);
-            _smoothScrollTimer.Stop();
-            return;
-        }
-
-        _downloadsScrollViewer.ScrollToVerticalOffset(
-            _downloadsScrollViewer.VerticalOffset + (distance * 0.32));
     }
 
     private void ToolTip_Opened(object sender, System.Windows.RoutedEventArgs e)
@@ -592,7 +528,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         if (sender is not System.Windows.Controls.Border rowBorder
             || FindNamedVisualChild<System.Windows.Controls.TextBlock>(rowBorder, "FilenameText") is not System.Windows.Controls.TextBlock textBlock
-            || FindNamedVisualChild<System.Windows.Controls.ScrollViewer>(rowBorder, "FilenameViewport") is not System.Windows.Controls.ScrollViewer viewport)
+            || FindNamedVisualChild<System.Windows.Controls.Border>(rowBorder, "FilenameViewport") is not System.Windows.Controls.Border viewport)
         {
             return;
         }
@@ -670,11 +606,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             && entry.ExistsNow)
         {
             e.Handled = true;
-            if (System.DateTime.UtcNow - _lastListScrollAt < System.TimeSpan.FromMilliseconds(400))
-            {
-                return;
-            }
-
             PerformDefaultAction(entry);
         }
     }
@@ -2798,7 +2729,6 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         _freshnessTimer.Stop();
         _trayPulseTimer.Stop();
-        _smoothScrollTimer.Stop();
         _releaseCheckTimer.Stop();
         _sha256Queue.Writer.TryComplete();
         _sha256Cancellation.Cancel();

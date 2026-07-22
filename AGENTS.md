@@ -37,7 +37,8 @@
 - The whole live-file row opens exactly once on a single left-button release; deleted rows must not open.
 - The persisted tray submenu `Default action` controls live-row single-left-click behavior: open file, show in Explorer, copy as path, copy file, or cut file. `Open file` is the backward-compatible default, and invalid persisted enum values must normalize to it.
 - WinForms nested `ToolStripDropDown` instances do not reliably inherit the parent tray theme. Explicitly assign the cyberpunk renderer, colors, font, padding, check margin, and hidden image margin to every submenu.
-- The downloads list uses pixel scrolling plus a short render-timer easing step for wheel/touchpad input. Suppress row actions for 400ms after list scrolling to avoid accidental K400-style touchpad clicks, but keep scrollbar dragging immediate and native.
+- The downloads list must use native WPF wheel and precision-touchpad routing. Never add a `PreviewMouseWheel` interceptor, dispatcher easing timer, wheel-delta scaling, cached scroll target, or scroll-related click delay.
+- Filename marquee clipping must use a non-scrollable `Border` or `Grid`; never place a nested `ScrollViewer` inside a row because it can consume wheel input before the list scrolls.
 - Do not put a clickable `Button` inside a clickable download row. Competing routed handlers make launches duplicate or appear inconsistent.
 - Hover and removal glyphs overlay the right edge of the row; never reserve a permanent grid column for them because it needlessly shortens every filename viewport.
 - Each row has a fixed 11px monochrome cyberpunk file-family glyph in a narrow left rail. Only the filename inside `FilenameViewport` may marquee; the type glyph must never move. Keep extension grouping in `DownloadFileTypeIcon` and retain a generic fallback.
@@ -105,8 +106,10 @@
 - NSIS artwork must remain opaque 24-bit BMP at exactly `150x57` for the header and `164x314` for welcome/finish pages.
 - `scripts/package-win.ps1` regenerates icon and installer artwork, then creates both the small framework-dependent installer and full self-contained installer under `artifacts/publish`.
 - The small installer downloads the signed .NET 10 Windows Desktop runtime from Microsoft only when missing. The full installer is offline/self-contained.
-- Version is sourced from `<Version>` in `VolturaDownloadWatcher.csproj`. `scripts/bump-release.ps1` uses the Voltura Air odometer convention and the GitHub release workflow creates a draft release for manual release-note editing and publication.
-- Release comparison reads the previous `.csproj` through `git show`; strip a leading `0xFEFF` BOM before casting that content to XML.
+- Version is sourced from `<Version>` in `VolturaDownloadWatcher.csproj`. `scripts/release-local.ps1` is the supported one-command release path and performs the odometer bump, complete local build, push, draft audit, and Latest publication.
+- The GitHub release workflow is intentionally disabled and has no push trigger. Keep the workflow file for possible future use, but never enable or dispatch it during a local release.
+- `docs/release-notes.md` is mandatory for user-visible changes. Before committing such a change, add or adjust the newest unreleased `## v<version>` section using short, non-technical bullets about behavior users can observe. Use as many bullets as the release needs, but keep each feature description brief and high-level. Do not include tests, refactors, build logic, workflow changes, or internal implementation details. Release-only infrastructure changes need no note.
+- The local release must fail before changing the version when its release-note section is missing, duplicated, or empty. A matching pending version or draft must resume rather than bump again.
 - GitHub Pages is built from the root `README.md` by `.github/workflows/pages.yml`. Do not create a second copy of site content; the workflow creates a temporary Jekyll `index.md` during CI.
 - `assets/branding/voltura-download-watcher-master.png` is the replaceable detailed source for the README mark and NSIS bitmap artwork. Keep it at least 256x256 with transparency and run `scripts/generate-branding.ps1` after replacement.
 - `assets/branding/voltura-download-watcher-tray-master.png` is the canonical neon source for every ICO frame (`16`, `24`, `32`, `48`, and `256` pixels), ensuring Task Manager's process group and child rows use the same visible icon. Keep its transparent exterior and high-contrast circular plate.
