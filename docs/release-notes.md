@@ -1,3 +1,8 @@
+## v0.1.7
+
+- Prevents stale download events from appearing after monitoring is paused and resumed.
+- Gives overflowing filenames an even two-second pause at both ends of their hover animation.
+
 ## v0.1.6
 
 - Adds a default-on Start minimized option so the splash screen is shown while the main panel starts hidden in the notification area.

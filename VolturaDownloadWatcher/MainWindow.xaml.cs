@@ -21,6 +21,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private readonly System.Collections.Generic.HashSet<string> _activeBrowserDownloads = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _appRenameTargets = new(System.StringComparer.OrdinalIgnoreCase);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _sha256QueuedPaths = new(System.StringComparer.OrdinalIgnoreCase);
+    private readonly MonitoringSession _monitoringSession = new();
     private readonly System.Threading.Channels.Channel<Sha256WorkItem> _sha256Queue =
         System.Threading.Channels.Channel.CreateUnbounded<Sha256WorkItem>(
             new System.Threading.Channels.UnboundedChannelOptions
@@ -59,7 +60,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private bool _isMuted;
     private bool _startMinimized;
     private System.Windows.Controls.ToolTip? _activeToolTip;
-    private bool _watcherRecoveryQueued;
+    private int _watcherRecoveryQueued;
     private bool _trayPulseIsBright;
     private bool _deleteToRecycleBin;
     private bool _closeToTrayNotificationShown;
@@ -477,14 +478,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void ToggleMonitoring()
     {
+        _monitoringSession.Advance();
         _monitoringPaused = !_monitoringPaused;
-        if (_watcher is null && !_monitoringPaused && System.IO.Directory.Exists(_downloadsPath))
+        if (_monitoringPaused)
+        {
+            _watcher?.Dispose();
+            _watcher = null;
+        }
+        else if (System.IO.Directory.Exists(_downloadsPath))
         {
             StartWatcher();
-        }
-        else if (_watcher is not null)
-        {
-            _watcher.EnableRaisingEvents = !_monitoringPaused;
         }
 
         _activeBrowserDownloads.Clear();
@@ -563,7 +566,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
         textBlock.Width = fullWidth;
 
-        var travelSeconds = overflow / 72;
+        var timeline = FilenameMarqueeTimeline.Create(overflow);
         var animation = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
         {
             RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
@@ -572,15 +575,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.Zero)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
-            System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.FromSeconds(0.2))));
+            System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.StartPauseEnd)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-overflow,
-            System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.FromSeconds(0.2 + travelSeconds))));
+            System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.ForwardEnd)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-overflow,
-            System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.FromSeconds(2.2 + travelSeconds))));
+            System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.FarEdgePauseEnd)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
-            System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.FromSeconds(2.2 + (travelSeconds * 2)))));
+            System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.ReturnEnd)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
-            System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.FromSeconds(4.2 + (travelSeconds * 2)))));
+            System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.CycleEnd)));
         transform.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, animation);
     }
 
@@ -2075,7 +2078,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void StartWatcher()
     {
-        _watcher = new System.IO.FileSystemWatcher(_downloadsPath)
+        var session = _monitoringSession.Current;
+        var watcher = new System.IO.FileSystemWatcher(_downloadsPath)
         {
             IncludeSubdirectories = false,
             NotifyFilter = System.IO.NotifyFilters.FileName | System.IO.NotifyFilters.CreationTime | System.IO.NotifyFilters.LastWrite,
@@ -2084,11 +2088,12 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             InternalBufferSize = 64 * 1024
         };
 
-        _watcher.Created += OnCreated;
-        _watcher.Renamed += OnRenamed;
-        _watcher.Deleted += OnDeleted;
-        _watcher.Error += OnWatcherError;
-        _watcher.EnableRaisingEvents = !_monitoringPaused;
+        watcher.Created += (_, e) => OnCreated(session, e);
+        watcher.Renamed += (_, e) => OnRenamed(session, e);
+        watcher.Deleted += (_, e) => OnDeleted(session, e);
+        watcher.Error += (_, e) => OnWatcherError(session, e);
+        _watcher = watcher;
+        watcher.EnableRaisingEvents = !_monitoringPaused;
     }
 
     private void LoadInitialDownloads()
@@ -2207,37 +2212,37 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         }
     }
 
-    private void OnCreated(object sender, System.IO.FileSystemEventArgs e)
+    private void OnCreated(long session, System.IO.FileSystemEventArgs e)
     {
-        if (_monitoringPaused)
+        if (!IsCurrentMonitoringSession(session))
         {
             return;
         }
 
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.Name ?? string.Empty))
         {
-            SetBrowserDownloadActive(e.FullPath, isActive: true);
+            SetBrowserDownloadActive(session, e.FullPath, isActive: true);
             return;
         }
 
-        AddDownload(e.FullPath);
+        AddDownload(session, e.FullPath);
     }
 
-    private void OnRenamed(object sender, System.IO.RenamedEventArgs e)
+    private void OnRenamed(long session, System.IO.RenamedEventArgs e)
     {
-        if (_monitoringPaused)
+        if (!IsCurrentMonitoringSession(session))
         {
             return;
         }
 
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.OldName ?? string.Empty))
         {
-            SetBrowserDownloadActive(e.OldFullPath, isActive: false);
+            SetBrowserDownloadActive(session, e.OldFullPath, isActive: false);
         }
 
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.Name ?? string.Empty))
         {
-            SetBrowserDownloadActive(e.FullPath, isActive: true);
+            SetBrowserDownloadActive(session, e.FullPath, isActive: true);
             return;
         }
 
@@ -2246,30 +2251,30 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             return;
         }
 
-        AddDownload(e.FullPath);
+        AddDownload(session, e.FullPath);
     }
 
-    private void OnDeleted(object sender, System.IO.FileSystemEventArgs e)
+    private void OnDeleted(long session, System.IO.FileSystemEventArgs e)
     {
-        if (_monitoringPaused)
+        if (!IsCurrentMonitoringSession(session))
         {
             return;
         }
 
         if (DownloadPolicy.IsBrowserDownloadInProgressName(e.Name ?? string.Empty))
         {
-            SetBrowserDownloadActive(e.FullPath, isActive: false);
+            SetBrowserDownloadActive(session, e.FullPath, isActive: false);
             return;
         }
 
-        Dispatcher.BeginInvoke(() => LogExternalDeletion(e.FullPath));
+        Dispatcher.BeginInvoke(() => LogExternalDeletion(session, e.FullPath));
     }
 
-    private void SetBrowserDownloadActive(string fullPath, bool isActive)
+    private void SetBrowserDownloadActive(long session, string fullPath, bool isActive)
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (_monitoringPaused)
+            if (!IsCurrentMonitoringSession(session))
             {
                 return;
             }
@@ -2426,19 +2431,19 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             _recentDownloads.Count);
     }
 
-    private void OnWatcherError(object sender, System.IO.ErrorEventArgs e)
+    private void OnWatcherError(long session, System.IO.ErrorEventArgs e)
     {
-        if (_monitoringPaused || _watcherRecoveryQueued)
+        if (!IsCurrentMonitoringSession(session)
+            || System.Threading.Interlocked.CompareExchange(ref _watcherRecoveryQueued, 1, 0) != 0)
         {
             return;
         }
 
-        _watcherRecoveryQueued = true;
         Dispatcher.BeginInvoke(() =>
         {
             try
             {
-                if (_monitoringPaused)
+                if (!IsCurrentMonitoringSession(session))
                 {
                     return;
                 }
@@ -2454,16 +2459,16 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             }
             finally
             {
-                _watcherRecoveryQueued = false;
+                System.Threading.Volatile.Write(ref _watcherRecoveryQueued, 0);
             }
         });
     }
 
-    private void AddDownload(string fullPath)
+    private void AddDownload(long session, string fullPath)
     {
         Dispatcher.BeginInvoke(() =>
         {
-            if (_monitoringPaused)
+            if (!IsCurrentMonitoringSession(session))
             {
                 return;
             }
@@ -2690,9 +2695,12 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         directionPath.Opacity = isActive ? 1 : 0.22;
     }
 
-    private void LogExternalDeletion(string fullPath)
+    private bool IsCurrentMonitoringSession(long session) =>
+        !_monitoringPaused && _monitoringSession.IsCurrent(session);
+
+    private void LogExternalDeletion(long session, string fullPath)
     {
-        if (_monitoringPaused)
+        if (!IsCurrentMonitoringSession(session))
         {
             return;
         }
