@@ -137,6 +137,31 @@ function Assert-Installer
     }
 }
 
+function Invoke-ReleasePackaging
+{
+    param([Parameter(Mandatory = $true)][string]$ReleaseVersion)
+
+    for ($attempt = 1; $attempt -le 3; $attempt++)
+    {
+        try
+        {
+            & (Join-Path $PSScriptRoot "package-win.ps1") -Version $ReleaseVersion -Runtime $runtime
+            return
+        }
+        catch
+        {
+            if ($attempt -eq 3)
+            {
+                throw
+            }
+
+            Write-Warning "Packaging attempt $attempt failed; shutting down build servers before retrying. $($_.Exception.Message)"
+            & dotnet build-server shutdown | Out-Host
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
 try
 {
     Set-Location $repoRoot
@@ -263,7 +288,9 @@ try
 
     & (Join-Path $PSScriptRoot "generate-branding.ps1")
     Invoke-Checked dotnet test ".\VolturaDownloadWatcher.Tests\VolturaDownloadWatcher.Tests.csproj" --configuration Release
-    & (Join-Path $PSScriptRoot "package-win.ps1") -Version $targetVersion -Runtime $runtime
+    & dotnet build-server shutdown | Out-Host
+    Start-Sleep -Milliseconds 800
+    Invoke-ReleasePackaging -ReleaseVersion $targetVersion
 
     $allowedChanges = Assert-ExpectedTrackedChanges
     Invoke-Checked git add -- $allowedChanges
@@ -281,7 +308,7 @@ try
         throw "Could not resolve the release commit."
     }
 
-    & (Join-Path $PSScriptRoot "package-win.ps1") -Version $targetVersion -Runtime $runtime
+    Invoke-ReleasePackaging -ReleaseVersion $targetVersion
     Invoke-Checked dotnet build $projectPath --configuration Release
     $postBuildStatus = @(git status --porcelain=v1 --untracked-files=all)
     if ($LASTEXITCODE -ne 0 -or $postBuildStatus.Count -gt 0)
