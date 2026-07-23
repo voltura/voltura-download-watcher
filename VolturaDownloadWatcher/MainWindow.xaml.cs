@@ -63,6 +63,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private System.Windows.Controls.ToolTip? _activeToolTip;
     private int _watcherRecoveryQueued;
     private bool _trayPulseIsBright;
+    private bool _trayMenuOpen;
     private bool _deleteToRecycleBin;
     private bool _closeToTrayNotificationShown;
     private bool _allowClose;
@@ -1063,6 +1064,11 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private void EnforceTopmost()
     {
+        if (_trayMenuOpen)
+        {
+            return;
+        }
+
         Topmost = true;
         var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (handle == System.IntPtr.Zero)
@@ -1203,13 +1209,42 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             Padding = new System.Windows.Forms.Padding(1)
         };
 
-        var show = new System.Windows.Forms.ToolStripMenuItem("Show Voltura Download Watcher")
+        var windowVisibility = new System.Windows.Forms.ToolStripMenuItem()
         {
             Font = new System.Drawing.Font(menuFont, System.Drawing.FontStyle.Bold),
             ForeColor = menu.ForeColor,
             Padding = new System.Windows.Forms.Padding(8, 5, 10, 5)
         };
-        show.Click += (_, _) => Dispatcher.Invoke(ShowFromTray);
+        void UpdateWindowVisibilityAction()
+        {
+            windowVisibility.Text = IsMainWindowVisibleOnScreen()
+                ? "Hide Voltura Download Watcher"
+                : "Show Voltura Download Watcher";
+        }
+
+        UpdateWindowVisibilityAction();
+        menu.Opening += (_, _) => Dispatcher.Invoke(UpdateWindowVisibilityAction);
+        menu.Opened += (_, _) => Dispatcher.Invoke(() =>
+        {
+            _trayMenuOpen = true;
+            PromoteTrayDropDown(menu);
+        });
+        menu.Closed += (_, _) => Dispatcher.Invoke(() =>
+        {
+            _trayMenuOpen = false;
+            EnforceTopmost();
+        });
+        windowVisibility.Click += (_, _) => Dispatcher.Invoke(() =>
+        {
+            if (IsMainWindowVisibleOnScreen())
+            {
+                HideToTray();
+            }
+            else
+            {
+                ShowFromTray();
+            }
+        });
 
         _monitoringMenuItem = new System.Windows.Forms.ToolStripMenuItem(
             _monitoringPaused ? "Resume monitoring" : "Pause monitoring")
@@ -1236,6 +1271,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ShowImageMargin = false,
             Padding = menu.Padding
         };
+        PromoteTrayDropDownWhenOpened(settingsMenu.DropDown);
 
         var startWithWindows = new System.Windows.Forms.ToolStripMenuItem("Start with Windows")
         {
@@ -1316,6 +1352,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ShowImageMargin = false,
             Padding = menu.Padding
         };
+        PromoteTrayDropDownWhenOpened(defaultActionMenu.DropDown);
         var defaultActionItems = new System.Collections.Generic.Dictionary<DownloadDefaultAction, System.Windows.Forms.ToolStripMenuItem>();
         var defaultActions = new (DownloadDefaultAction Action, string Label)[]
         {
@@ -1363,6 +1400,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ShowImageMargin = false,
             Padding = menu.Padding
         };
+        PromoteTrayDropDownWhenOpened(notificationMenu.DropDown);
         var notificationItems = new System.Collections.Generic.Dictionary<int, System.Windows.Forms.ToolStripMenuItem>();
         var notificationChoices = new (int Seconds, string Label)[]
         {
@@ -1467,6 +1505,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             ShowImageMargin = false,
             Padding = menu.Padding
         };
+        PromoteTrayDropDownWhenOpened(_aboutMenuItem.DropDown);
         var aboutHeader = new System.Windows.Forms.ToolStripMenuItem($"Voltura Download Watcher v{GetDisplayVersion()}")
         {
             Font = new System.Drawing.Font(menuFont, System.Drawing.FontStyle.Bold),
@@ -1569,7 +1608,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             }).Task.Unwrap();
         };
 
-        menu.Items.Add(show);
+        menu.Items.Add(windowVisibility);
         menu.Items.Add(_monitoringMenuItem);
         menu.Items.Add(settingsMenu);
         menu.Items.Add(openDownloads);
@@ -1580,6 +1619,29 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         menu.Items.Add(_aboutMenuItem);
         menu.Items.Add(exit);
         return menu;
+    }
+
+    private bool IsMainWindowVisibleOnScreen() =>
+        IsVisible && WindowState is not System.Windows.WindowState.Minimized;
+
+    private void PromoteTrayDropDownWhenOpened(System.Windows.Forms.ToolStripDropDown dropDown) =>
+        dropDown.Opened += (_, _) => Dispatcher.Invoke(() => PromoteTrayDropDown(dropDown));
+
+    private static void PromoteTrayDropDown(System.Windows.Forms.ToolStripDropDown dropDown)
+    {
+        if (dropDown.Handle == System.IntPtr.Zero)
+        {
+            return;
+        }
+
+        SetWindowPos(
+            dropDown.Handle,
+            new System.IntPtr(-1),
+            0,
+            0,
+            0,
+            0,
+            SetWindowPosNoActivate | SetWindowPosNoMove | SetWindowPosNoSize);
     }
 
     private async System.Threading.Tasks.Task CheckForReleaseAsync(

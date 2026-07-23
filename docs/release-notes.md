@@ -3,6 +3,8 @@
 - Adds an Open file shortcut to the main download actions and completion notification.
 - Briefly confirms file actions with a neon status beside the main panel and brings newly opened application windows forward.
 - Shows icon explanations almost immediately throughout the app, with continuous hover targets across both top action strips.
+- Changes the tray menu's first action between Show and Hide to match the main window's current visibility.
+- Keeps the tray menu and its submenus above the main window, including when the window is maximized.
 
 ## v0.1.8
 
