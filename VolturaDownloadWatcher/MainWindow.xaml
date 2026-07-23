@@ -812,28 +812,29 @@
                                                     ClipToBounds="True"
                                                     HorizontalAlignment="Stretch"
                                                     Margin="0,0,4,0">
-                                                <TextBlock x:Name="FilenameText"
-                                                           Text="{Binding FileName}"
-                                                           FontFamily="Bahnschrift SemiCondensed"
-                                                           FontSize="9"
-                                                           FontWeight="SemiBold"
-                                                           TextWrapping="NoWrap"
-                                                           HorizontalAlignment="Left"
-                                                           RenderTransformOrigin="0,0.5">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Foreground" Value="{Binding DisplayBrush}" />
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding ElementName=RowShell, Path=IsMouseOver}" Value="True">
-                                                                    <Setter Property="Foreground" Value="#E4FFEA" />
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                    <TextBlock.RenderTransform>
-                                                        <TranslateTransform />
-                                                    </TextBlock.RenderTransform>
-                                                </TextBlock>
+                                                <Canvas Height="12">
+                                                    <TextBlock x:Name="FilenameText"
+                                                               Text="{Binding FileName}"
+                                                               FontFamily="Bahnschrift SemiCondensed"
+                                                               FontSize="9"
+                                                               FontWeight="SemiBold"
+                                                               TextWrapping="NoWrap"
+                                                               RenderTransformOrigin="0,0.5">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{Binding DisplayBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding ElementName=RowShell, Path=IsMouseOver}" Value="True">
+                                                                        <Setter Property="Foreground" Value="#E4FFEA" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                        <TextBlock.RenderTransform>
+                                                            <TranslateTransform />
+                                                        </TextBlock.RenderTransform>
+                                                    </TextBlock>
+                                                </Canvas>
                                             </Border>
                                             <TextBlock Text="{Binding DownloadedMetaText}"
                                                        Foreground="#6EA37A"

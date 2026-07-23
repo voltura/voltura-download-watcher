@@ -1,3 +1,7 @@
+## v0.1.8
+
+- Scrolls the complete filename only far enough to reveal its end at the right edge.
+
 ## v0.1.7
 
 - Prevents stale download events from appearing after monitoring is paused and resumed.

@@ -554,19 +554,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             textBlock.RenderTransform = transform;
         }
 
-        textBlock.Width = double.NaN;
-        textBlock.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-        var fullWidth = textBlock.DesiredSize.Width;
-        var availableWidth = viewport.ActualWidth;
-        var overflow = fullWidth - availableWidth;
-        if (overflow <= 0.25)
+        var measurement = FilenameMarqueeMeasurement.Create(textBlock, viewport.ActualWidth);
+        if (measurement.Overflow <= 0.25)
         {
             return;
         }
 
-        textBlock.Width = fullWidth;
+        textBlock.Width = measurement.FullWidth;
 
-        var timeline = FilenameMarqueeTimeline.Create(overflow);
+        var timeline = FilenameMarqueeTimeline.Create(measurement.Overflow);
         var animation = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
         {
             RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
@@ -576,9 +572,9 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(System.TimeSpan.Zero)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.StartPauseEnd)));
-        animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-overflow,
+        animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-measurement.Overflow,
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.ForwardEnd)));
-        animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-overflow,
+        animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(-measurement.Overflow,
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.FarEdgePauseEnd)));
         animation.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0,
             System.Windows.Media.Animation.KeyTime.FromTimeSpan(timeline.ReturnEnd)));

@@ -3,6 +3,46 @@ namespace VolturaDownloadWatcher.Tests;
 public sealed class MainWindowScrollingTests
 {
     [Fact]
+    public void FilenameVisualKeepsTheCompleteTextRenderedOutsideTheClippedViewport()
+    {
+        RunOnStaThread(() =>
+        {
+            using var window = new MainWindow
+            {
+                Width = 240,
+                Height = 150
+            };
+            window.Downloads.Add(new DownloadEntry
+            {
+                FileName = "ABCDEF-this-entire-long-filename-must-remain-rendered-outside-the-viewport.txt",
+                FullPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marquee-layout.txt"),
+                CreatedAt = System.DateTime.Now,
+                TouchedAt = System.DateTime.Now,
+                ExistsNow = true
+            });
+
+            var list = Xunit.Assert.IsType<System.Windows.Controls.ListView>(window.FindName("DownloadsList"));
+            var root = Xunit.Assert.IsAssignableFrom<System.Windows.FrameworkElement>(window.Content);
+            root.Measure(new System.Windows.Size(240, 150));
+            root.Arrange(new System.Windows.Rect(0, 0, 240, 150));
+            root.UpdateLayout();
+            list.ApplyTemplate();
+            list.UpdateLayout();
+
+            var row = Xunit.Assert.IsType<System.Windows.Controls.ListViewItem>(list.ItemContainerGenerator.ContainerFromIndex(0));
+            var viewport = Xunit.Assert.IsType<System.Windows.Controls.Border>(
+                FindNamedVisualChild<System.Windows.Controls.Border>(row, "FilenameViewport"));
+            var filename = Xunit.Assert.IsType<System.Windows.Controls.TextBlock>(
+                FindNamedVisualChild<System.Windows.Controls.TextBlock>(row, "FilenameText"));
+
+            Xunit.Assert.True(viewport.ActualWidth > 0);
+            Xunit.Assert.IsType<System.Windows.Controls.Canvas>(
+                System.Windows.Media.VisualTreeHelper.GetParent(filename));
+            Xunit.Assert.True(filename.ActualWidth > viewport.ActualWidth);
+        });
+    }
+
+    [Fact]
     public void WheelInputOverFilenameUsesNativeListScrollingInBothDirections()
     {
         RunOnStaThread(() =>
