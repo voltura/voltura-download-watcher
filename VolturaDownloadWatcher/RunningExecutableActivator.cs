@@ -163,6 +163,44 @@ internal static class RunningExecutableActivator
         }
     }
 
+    internal static void ActivateWhenReady(System.Diagnostics.Process process)
+    {
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            using (process)
+            {
+                for (var attempt = 0; attempt < 20; attempt++)
+                {
+                    try
+                    {
+                        process.Refresh();
+                        if (process.HasExited)
+                        {
+                            return;
+                        }
+
+                        var windowHandle = FindVisibleWindow(process);
+                        if (windowHandle != System.IntPtr.Zero)
+                        {
+                            ActivateWindow(windowHandle);
+                            return;
+                        }
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                        return;
+                    }
+                    catch (System.InvalidOperationException)
+                    {
+                        return;
+                    }
+
+                    await System.Threading.Tasks.Task.Delay(100).ConfigureAwait(false);
+                }
+            }
+        });
+    }
+
     internal static bool IsDescendantOf(
         int processId,
         int ancestorProcessId,

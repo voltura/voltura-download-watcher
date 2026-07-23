@@ -1,3 +1,9 @@
+## v0.1.9
+
+- Adds an Open file shortcut to the main download actions and completion notification.
+- Briefly confirms file actions with a neon status beside the main panel and brings newly opened application windows forward.
+- Shows icon explanations almost immediately throughout the app, with continuous hover targets across both top action strips.
+
 ## v0.1.8
 
 - Adds an Open file shortcut to the main download actions and completion notification.

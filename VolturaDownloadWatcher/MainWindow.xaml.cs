@@ -56,6 +56,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     private System.Windows.Forms.ToolStripMenuItem? _downloadReleaseMenuItem;
     private System.Windows.Forms.ToolStripMenuItem? _dailyUpdateChecksMenuItem;
     private DownloadNotificationWindow? _downloadNotificationWindow;
+    private ActionFeedbackWindow? _actionFeedbackWindow;
     private readonly string _sparkSoundPath;
     private bool _isMuted;
     private bool _startMinimized;
@@ -622,14 +623,40 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
 
     private DownloadNotificationActionOutcome PerformDefaultAction(DownloadEntry entry)
     {
-        return _defaultAction switch
+        var actionText = _defaultAction switch
+        {
+            DownloadDefaultAction.ShowInExplorer => "SHOWN IN EXPLORER",
+            DownloadDefaultAction.CopyAsPath => "PATH COPIED",
+            DownloadDefaultAction.CopyFile => "FILE COPIED",
+            DownloadDefaultAction.CutFile => "FILE CUT",
+            _ => "OPENING"
+        };
+        return PerformWithFeedback(entry, actionText, () => _defaultAction switch
         {
             DownloadDefaultAction.ShowInExplorer => ShowFileInExplorer(entry),
             DownloadDefaultAction.CopyAsPath => CopyPathToClipboard(entry),
             DownloadDefaultAction.CopyFile => SetFileClipboard(entry, isCut: false),
             DownloadDefaultAction.CutFile => SetFileClipboard(entry, isCut: true),
             _ => OpenDefaultPath(entry)
-        };
+        });
+    }
+
+    private DownloadNotificationActionOutcome PerformWithFeedback(
+        DownloadEntry entry,
+        string actionText,
+        System.Func<DownloadNotificationActionOutcome> perform)
+    {
+        var outcome = perform();
+        if (outcome is DownloadNotificationActionOutcome.Succeeded)
+        {
+            _actionFeedbackWindow ??= new ActionFeedbackWindow();
+            var anchorWindow = IsVisible && WindowState is not System.Windows.WindowState.Minimized
+                ? this
+                : null;
+            _actionFeedbackWindow.ShowFeedback(actionText, entry.FileName, anchorWindow);
+        }
+
+        return outcome;
     }
 
     private DownloadNotificationActionOutcome OpenDefaultPath(DownloadEntry entry)
@@ -645,7 +672,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            OpenDefaultPath(entry);
+            PerformWithFeedback(entry, "OPENING", () => OpenDefaultPath(entry));
         }
     }
 
@@ -654,7 +681,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            SetFileClipboard(entry, isCut: false);
+            PerformWithFeedback(entry, "FILE COPIED", () => SetFileClipboard(entry, isCut: false));
         }
     }
 
@@ -663,7 +690,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            SetFileClipboard(entry, isCut: true);
+            PerformWithFeedback(entry, "FILE CUT", () => SetFileClipboard(entry, isCut: true));
         }
     }
 
@@ -672,7 +699,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            CopyPathToClipboard(entry);
+            PerformWithFeedback(entry, "PATH COPIED", () => CopyPathToClipboard(entry));
         }
     }
 
@@ -681,7 +708,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            CopySha256ToClipboard(entry);
+            PerformWithFeedback(entry, "SHA-256 COPIED", () => CopySha256ToClipboard(entry));
         }
     }
 
@@ -792,7 +819,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            RenameFile(entry);
+            PerformWithFeedback(entry, "FILE RENAMED", () => RenameFile(entry));
         }
     }
 
@@ -883,7 +910,10 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         e.Handled = true;
         if (GetContextMenuEntry(sender) is DownloadEntry entry)
         {
-            DeleteFile(entry);
+            PerformWithFeedback(
+                entry,
+                _deleteToRecycleBin ? "MOVED TO RECYCLE BIN" : "FILE DELETED",
+                () => DeleteFile(entry));
         }
     }
 
@@ -1053,6 +1083,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         {
             PromoteTooltip(_activeToolTip);
         }
+
+        _actionFeedbackWindow?.Promote();
     }
 
     public void DisposeTrayIcon()
@@ -2402,13 +2434,22 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         return action switch
         {
-            DownloadNotificationAction.OpenFile => OpenDefaultPath(entry),
-            DownloadNotificationAction.CopyFile => SetFileClipboard(entry, isCut: false),
-            DownloadNotificationAction.CopyAsPath => CopyPathToClipboard(entry),
-            DownloadNotificationAction.CutFile => SetFileClipboard(entry, isCut: true),
-            DownloadNotificationAction.Rename => RenameFile(entry),
-            DownloadNotificationAction.CopySha256 => CopySha256ToClipboard(entry),
-            DownloadNotificationAction.Delete => DeleteFile(entry),
+            DownloadNotificationAction.OpenFile => PerformWithFeedback(
+                entry, "OPENING", () => OpenDefaultPath(entry)),
+            DownloadNotificationAction.CopyFile => PerformWithFeedback(
+                entry, "FILE COPIED", () => SetFileClipboard(entry, isCut: false)),
+            DownloadNotificationAction.CopyAsPath => PerformWithFeedback(
+                entry, "PATH COPIED", () => CopyPathToClipboard(entry)),
+            DownloadNotificationAction.CutFile => PerformWithFeedback(
+                entry, "FILE CUT", () => SetFileClipboard(entry, isCut: true)),
+            DownloadNotificationAction.Rename => PerformWithFeedback(
+                entry, "FILE RENAMED", () => RenameFile(entry)),
+            DownloadNotificationAction.CopySha256 => PerformWithFeedback(
+                entry, "SHA-256 COPIED", () => CopySha256ToClipboard(entry)),
+            DownloadNotificationAction.Delete => PerformWithFeedback(
+                entry,
+                _deleteToRecycleBin ? "MOVED TO RECYCLE BIN" : "FILE DELETED",
+                () => DeleteFile(entry)),
             _ => PerformDefaultAction(entry)
         };
     }
@@ -2786,7 +2827,12 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             }
 
             var info = ExecutableLaunchPolicy.CreateStartInfo(path);
-            System.Diagnostics.Process.Start(info);
+            var process = System.Diagnostics.Process.Start(info);
+            if (process is not null)
+            {
+                RunningExecutableActivator.ActivateWhenReady(process);
+            }
+
             return true;
         }
         catch
@@ -2960,6 +3006,8 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
         _releaseCheckTimer.Stop();
         _downloadNotificationWindow?.Dispose();
         _downloadNotificationWindow = null;
+        _actionFeedbackWindow?.Dispose();
+        _actionFeedbackWindow = null;
         _sha256Queue.Writer.TryComplete();
         _sha256Cancellation.Cancel();
         _watcher?.Dispose();
