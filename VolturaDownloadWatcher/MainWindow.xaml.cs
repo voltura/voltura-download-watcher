@@ -640,6 +640,15 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
             : DownloadNotificationActionOutcome.Failed;
     }
 
+    private void OpenFile_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (GetContextMenuEntry(sender) is DownloadEntry entry)
+        {
+            OpenDefaultPath(entry);
+        }
+    }
+
     private void CopyFile_Click(object sender, System.Windows.RoutedEventArgs e)
     {
         e.Handled = true;
@@ -2393,6 +2402,7 @@ public partial class MainWindow : System.Windows.Window, System.ComponentModel.I
     {
         return action switch
         {
+            DownloadNotificationAction.OpenFile => OpenDefaultPath(entry),
             DownloadNotificationAction.CopyFile => SetFileClipboard(entry, isCut: false),
             DownloadNotificationAction.CopyAsPath => CopyPathToClipboard(entry),
             DownloadNotificationAction.CutFile => SetFileClipboard(entry, isCut: true),

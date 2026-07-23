@@ -185,6 +185,7 @@ public partial class DownloadNotificationWindow : System.Windows.Window, System.
         }
     }
 
+    private void OpenFile_Click(object sender, System.Windows.RoutedEventArgs e) => Invoke(DownloadNotificationAction.OpenFile);
     private void CopyFile_Click(object sender, System.Windows.RoutedEventArgs e) => Invoke(DownloadNotificationAction.CopyFile);
     private void CopyAsPath_Click(object sender, System.Windows.RoutedEventArgs e) => Invoke(DownloadNotificationAction.CopyAsPath);
     private void CutFile_Click(object sender, System.Windows.RoutedEventArgs e) => Invoke(DownloadNotificationAction.CutFile);

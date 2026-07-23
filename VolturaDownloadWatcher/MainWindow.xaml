@@ -671,6 +671,12 @@
                                         PreviewMouseLeftButtonUp="OpenRow_Click">
                                     <Border.ContextMenu>
                                         <ContextMenu DataContext="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource Self}}">
+                                            <MenuItem Click="OpenFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Open file">
+                                                <MenuItem.Icon>
+                                                    <Path Data="M4,3 H9 L11,5 H14 V14 H4 Z M7,9 H12 M10,6 L13,9 L10,12"
+                                                          Style="{StaticResource ContextActionIcon}" />
+                                                </MenuItem.Icon>
+                                            </MenuItem>
                                             <MenuItem Click="CopyFile_Click" Tag="{Binding}" IsEnabled="{Binding ExistsNow}" ToolTip="Copy file">
                                                 <MenuItem.Icon>
                                                     <Path Data="M6,3 H15 V12 H6 Z M3,6 H5 V14 H12 V13"

@@ -1,5 +1,6 @@
 ## v0.1.8
 
+- Adds an Open file shortcut to the main download actions and completion notification.
 - Scrolls the complete filename only far enough to reveal its end at the right edge.
 
 ## v0.1.7

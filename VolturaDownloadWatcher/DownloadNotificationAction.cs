@@ -3,6 +3,7 @@ namespace VolturaDownloadWatcher;
 public enum DownloadNotificationAction
 {
     Default,
+    OpenFile,
     CopyFile,
     CopyAsPath,
     CutFile,
